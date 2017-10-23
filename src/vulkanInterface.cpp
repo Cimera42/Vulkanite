@@ -40,12 +40,26 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkanInterfaceDebugCallback(
 
 VulkanInterface::~VulkanInterface()
 {
+	cleanupSwapchain(true);
+
 	vkDestroySemaphore(logicalDevice, renderFinishedSemaphore, nullptr);
 	Logger() << "Render semaphore destroyed";
 	vkDestroySemaphore(logicalDevice, imageAvailableSemaphore, nullptr);
 	Logger() << "Image semaphore destroyed";
 
 	vkDestroyCommandPool(logicalDevice, commandPool, nullptr);
+	Logger() << "Command pool destroyed";
+	vkDestroyDevice(logicalDevice, nullptr);
+	Logger() << "Logical device destroyed";
+	vkDestroySurfaceKHR(vulkanInstance, surface, nullptr);
+	Logger() << "Surface destroyed";
+	destroyDebug();
+	vkDestroyInstance(vulkanInstance, nullptr);
+	Logger() << "Vulkan instance destroyed";
+}
+
+void VulkanInterface::cleanupSwapchain(bool delSwapchain)
+{
 	int i = 0;
 	for(const auto& framebuffer : swapchainFramebuffers)
 	{
@@ -53,6 +67,10 @@ VulkanInterface::~VulkanInterface()
 		Logger() << "Framebuffer [" << i << "] destroyed";
 		i++;
 	}
+
+	vkFreeCommandBuffers(logicalDevice, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+	Logger() << "Command buffers freed";
+
 	vkDestroyPipeline(logicalDevice, graphicsPipeline, nullptr);
 	Logger() << "Graphics pipeline destroyed";
 	vkDestroyPipelineLayout(logicalDevice, pipelineLayout, nullptr);
@@ -66,32 +84,44 @@ VulkanInterface::~VulkanInterface()
 		Logger() << "Image view [" << i << "] destroyed";
 		i++;
 	}
-	vkDestroySwapchainKHR(logicalDevice, swapchain, nullptr);
-	Logger() << "Swapchain destroyed";
-	vkDestroyDevice(logicalDevice, nullptr);
-	Logger() << "Logical device destroyed";
-	vkDestroySurfaceKHR(vulkanInstance, surface, nullptr);
-	Logger() << "Surface destroyed";
-	destroyDebug();
-	vkDestroyInstance(vulkanInstance, nullptr);
-	Logger() << "Vulkan instance destroyed";
+	if(delSwapchain)
+	{
+		vkDestroySwapchainKHR(logicalDevice, swapchain, nullptr);
+		Logger() << "Swapchain destroyed";
+	}
 }
 
-void VulkanInterface::initVulkan(Window * window)
+void VulkanInterface::initVulkan(Window * inWindow)
 {
+	window = inWindow;
+
 	createInstance();
 	initDebug();
-	createSurface(window);
+	createSurface();
 	pickPhysicalDevice();
 	createLogicalDevice();
-	createSwapchain(window);
+	createSwapchain();
 	createImageViews();
 	createRenderPass();
 	createGraphicsPipeline();
-	createFramebuffer();
+	createFramebuffers();
 	createCommandPool();
 	createCommandBuffers();
 	createSemaphores();
+}
+
+void VulkanInterface::recreateSwapchain()
+{
+	vkDeviceWaitIdle(logicalDevice);
+
+	cleanupSwapchain(false);
+
+	createSwapchain();
+	createImageViews();
+	createRenderPass();
+	createGraphicsPipeline();
+	createFramebuffers();
+	createCommandBuffers();
 }
 
 void VulkanInterface::createInstance()
@@ -144,7 +174,7 @@ void VulkanInterface::createInstance()
 	}
 }
 
-void VulkanInterface::createSurface(Window * window)
+void VulkanInterface::createSurface()
 {
 	if(glfwCreateWindowSurface(vulkanInstance, window->glfwWindow, nullptr, &surface) != VK_SUCCESS)
 	{
@@ -226,7 +256,7 @@ void VulkanInterface::createLogicalDevice()
 	vkGetDeviceQueue(logicalDevice, static_cast<uint32_t>(queues.presentFamily), 0, &presentQueue);
 }
 
-void VulkanInterface::createSwapchain(Window *window)
+void VulkanInterface::createSwapchain()
 {
 	SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
 
@@ -272,7 +302,11 @@ void VulkanInterface::createSwapchain(Window *window)
 	createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	createInfo.presentMode = presentMode;
 	createInfo.clipped = VK_TRUE; //Ignore pixels hidden by other drawings
-	createInfo.oldSwapchain = VK_NULL_HANDLE;
+	VkSwapchainKHR oldSwapchain = swapchain;
+	if(hasSwapchain)
+		createInfo.oldSwapchain = oldSwapchain;
+	else
+		createInfo.oldSwapchain = VK_NULL_HANDLE;
 
 	if(vkCreateSwapchainKHR(logicalDevice, &createInfo, nullptr, &swapchain) != VK_SUCCESS)
 	{
@@ -280,6 +314,13 @@ void VulkanInterface::createSwapchain(Window *window)
 		throw std::runtime_error("Failed to create swapchain");
 	}
 	Logger() << "Swapchain created";
+
+	if(hasSwapchain)
+	{
+		vkDestroySwapchainKHR(logicalDevice, oldSwapchain, nullptr);
+		Logger() << "Swapchain destroyed";
+	}
+	hasSwapchain = true;
 
 	vkGetSwapchainImagesKHR(logicalDevice, swapchain, &imageCount, nullptr);
 	swapchainImages.resize(imageCount);
@@ -527,7 +568,7 @@ void VulkanInterface::createGraphicsPipeline()
 	vkDestroyShaderModule(logicalDevice, fragShaderModule, nullptr);
 }
 
-void VulkanInterface::createFramebuffer()
+void VulkanInterface::createFramebuffers()
 {
 	swapchainFramebuffers.resize(swapchainImageViews.size());
 
@@ -657,7 +698,17 @@ void VulkanInterface::createSemaphores()
 void VulkanInterface::draw()
 {
 	uint32_t imageIndex;
-	vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+	VkResult result = vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+	if(result == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		recreateSwapchain();
+		return;
+	}
+	else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+	{
+		Logger() << "Swapchain image acquiring failed";
+		throw std::runtime_error("Failed to acqurie swapchain image");
+	}
 
 	VkSubmitInfo submitInfo = {};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -694,7 +745,17 @@ void VulkanInterface::draw()
 	presentInfo.pImageIndices = &imageIndex;
 	presentInfo.pResults = nullptr; // Optional
 
-	vkQueuePresentKHR(presentQueue, &presentInfo);
+	result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+	{
+		recreateSwapchain();
+	}
+	else if(result != VK_SUCCESS)
+	{
+		Logger() << "Swapchain image presentation failed";
+		throw std::runtime_error("Failed to present swapchain image");
+	}
 
 	vkQueueWaitIdle(presentQueue);
 
@@ -953,7 +1014,10 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, Window
 	}
 	else
 	{
-		VkExtent2D actualExtent = {static_cast<uint32_t>(window->width), static_cast<uint32_t>(window->height)};
+		int width, height;
+		glfwGetWindowSize(window->glfwWindow, &width, &height);
+
+		VkExtent2D actualExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 
 		actualExtent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, actualExtent.width));
 		actualExtent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, actualExtent.height));

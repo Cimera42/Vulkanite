@@ -12,6 +12,14 @@ void errCallback(int inCode, const char* descrip)
 	Logger() << inCode << " -- #GLFW ERROR# -- " << descrip;
 }
 
+void windowResize(GLFWwindow* window, int width, int height)
+{
+	if(width == 0 || height == 0) return;
+
+	VulkanInterface* vulkanInterface = static_cast<VulkanInterface *>(glfwGetWindowUserPointer(window));
+	vulkanInterface->recreateSwapchain();
+}
+
 int main()
 {
 	Logger::initLogger();
@@ -33,6 +41,9 @@ int main()
 		Logger() << " -- #VULKAN ERROR# -- " << e.what();
 		return EXIT_FAILURE;
 	}
+
+	glfwSetWindowSizeCallback(window->glfwWindow, windowResize);
+	glfwSetWindowUserPointer(window->glfwWindow, vulkanInterface);
 
 	while(!glfwWindowShouldClose(window->glfwWindow))
 	{

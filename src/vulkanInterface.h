@@ -38,6 +38,7 @@ class VulkanInterface
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 	VkSurfaceKHR surface;
+	bool hasSwapchain = false;
 	VkSwapchainKHR swapchain;
 	VkSurfaceFormatKHR surfaceFormat;
 	VkExtent2D swapchainExtent;
@@ -55,17 +56,21 @@ class VulkanInterface
 	std::vector<VkCommandBuffer> commandBuffers;
 
 	void createInstance();
-	void createSurface(Window * window);
+	void createSurface();
 	void pickPhysicalDevice();
 	void createLogicalDevice();
-	void createSwapchain(Window *window);
+	void createSwapchain();
 	void createImageViews();
 	void createRenderPass();
 	void createGraphicsPipeline();
-	void createFramebuffer();
+	void createFramebuffers();
 	void createCommandPool();
 	void createCommandBuffers();
 	void createSemaphores();
+
+	void cleanupSwapchain(bool delSwapchain);
+
+	Window * window;
 
 
 #ifdef VALIDATION_LAYERS
@@ -88,6 +93,7 @@ public:
 
 	void draw();
 	void waitForIdle();
+	void recreateSwapchain();
 };
 
 bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
