@@ -40,6 +40,11 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkanInterfaceDebugCallback(
 
 VulkanInterface::~VulkanInterface()
 {
+	vkDestroySemaphore(logicalDevice, renderFinishedSemaphore, nullptr);
+	Logger() << "Render semaphore destroyed";
+	vkDestroySemaphore(logicalDevice, imageAvailableSemaphore, nullptr);
+	Logger() << "Image semaphore destroyed";
+
 	vkDestroyCommandPool(logicalDevice, commandPool, nullptr);
 	int i = 0;
 	for(const auto& framebuffer : swapchainFramebuffers)
@@ -86,7 +91,7 @@ void VulkanInterface::initVulkan(Window * window)
 	createFramebuffer();
 	createCommandPool();
 	createCommandBuffers();
-	createSemaphores()
+	createSemaphores();
 }
 
 void VulkanInterface::createInstance()
@@ -339,12 +344,22 @@ void VulkanInterface::createRenderPass()
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
 
+	VkSubpassDependency dependency = {};
+	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependency.dstSubpass = 0;
+	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.srcAccessMask = 0;
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 	renderPassInfo.attachmentCount = 1;
 	renderPassInfo.pAttachments = &colorAttachment;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
+	renderPassInfo.dependencyCount = 1;
+	renderPassInfo.pDependencies = &dependency;
 
 	if(vkCreateRenderPass(logicalDevice, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
 	{
@@ -621,12 +636,80 @@ void VulkanInterface::createCommandBuffers()
 
 void VulkanInterface::createSemaphores()
 {
+	VkSemaphoreCreateInfo semaphoreInfo = {};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
+	if(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS)
+	{
+		Logger() << "Image semaphore creation failed";
+		throw std::runtime_error("Failed to create image semaphores");
+	}
+	Logger() << "Image semaphore created";
+
+	if(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS)
+	{
+		Logger() << "Render semaphore creation failed";
+		throw std::runtime_error("Failed to create render semaphores");
+	}
+	Logger() << "Render semaphores created";
 }
 
 void VulkanInterface::draw()
 {
+	uint32_t imageIndex;
+	vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+	VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+	VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+	submitInfo.waitSemaphoreCount = 1;
+	submitInfo.pWaitSemaphores = waitSemaphores;
+	submitInfo.pWaitDstStageMask = waitStages;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+
+	VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores = signalSemaphores;
+
+	if(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS)
+	{
+		Logger() << "Draw command buffer submit failed";
+		throw std::runtime_error("Failed to submit draw command buffer");
+	}
+	//Logger() << "Draw command buffer submitted";
+
+	//Submit frame to swapchain
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pWaitSemaphores = signalSemaphores;
+
+	VkSwapchainKHR swapChains[] = {swapchain};
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains = swapChains;
+	presentInfo.pImageIndices = &imageIndex;
+	presentInfo.pResults = nullptr; // Optional
+
+	vkQueuePresentKHR(presentQueue, &presentInfo);
+
+	vkQueueWaitIdle(presentQueue);
+
+	/*void drawFrame() {
+		updateAppState();
+		vkQueueWaitIdle(presentQueue);
+		vkAcquireNextImageKHR(...)
+		submitDrawCommands();
+		vkQueuePresentKHR(presentQueue, &presentInfo);
+	}*/
+}
+
+void VulkanInterface::waitForIdle()
+{
+	vkDeviceWaitIdle(logicalDevice);
 }
 
 void VulkanInterface::initDebug()

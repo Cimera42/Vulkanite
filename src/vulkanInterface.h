@@ -87,6 +87,7 @@ public:
 	~VulkanInterface();
 
 	void draw();
+	void waitForIdle();
 };
 
 bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);

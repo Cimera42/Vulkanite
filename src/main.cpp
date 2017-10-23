@@ -40,6 +40,8 @@ int main()
 		glfwPollEvents();
 	}
 
+	vulkanInterface->waitForIdle();
+
 	Logger() << "Begin destruction";
 	delete window;
 	Logger() << "Window destroyed";
