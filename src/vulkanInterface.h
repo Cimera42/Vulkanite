@@ -55,8 +55,10 @@ class VulkanInterface
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 	VkCommandPool commandPool;
-//	VkBuffer vertexBuffer;
-//	VkDeviceMemory vertexBufferMemory;
+	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
+	VkBuffer indexBuffer;
+	VkDeviceMemory indexBufferMemory;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
@@ -77,13 +79,17 @@ class VulkanInterface
 	void createFramebuffers();
 	void createCommandPool();
 	void createVertexBuffer();
+	void createIndexBuffer();
 	void createCommandBuffers();
 	void createSemaphores();
 
 	void cleanupSwapchain(bool delSwapchain);
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
 	Window * window;
+	std::vector<Vertex> vertices;
+	std::vector<uint16_t > indices;
 
 
 #ifdef VALIDATION_LAYERS
