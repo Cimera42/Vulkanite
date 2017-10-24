@@ -7,6 +7,7 @@
 #include <iostream>
 #include <set>
 #include <fstream>
+#include <array>
 #include "vulkanInterface.h"
 #include "logger.h"
 
@@ -41,6 +42,16 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkanInterfaceDebugCallback(
 VulkanInterface::~VulkanInterface()
 {
 	cleanupSwapchain(true);
+
+	vkDestroyBuffer(logicalDevice, indexBuffer, nullptr);
+	Logger() << "Index buffer destroyed";
+	vkFreeMemory(logicalDevice, indexBufferMemory, nullptr);
+	Logger() << "Index buffer memory freed";
+
+	vkDestroyBuffer(logicalDevice, vertexBuffer, nullptr);
+	Logger() << "Vertex buffer destroyed";
+	vkFreeMemory(logicalDevice, vertexBufferMemory, nullptr);
+	Logger() << "Vertex buffer memory freed";
 
 	vkDestroySemaphore(logicalDevice, renderFinishedSemaphore, nullptr);
 	Logger() << "Render semaphore destroyed";
@@ -106,6 +117,8 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createGraphicsPipeline();
 	createFramebuffers();
 	createCommandPool();
+	createVertexBuffer();
+	createIndexBuffer();
 	createCommandBuffers();
 	createSemaphores();
 }
@@ -353,7 +366,7 @@ void VulkanInterface::createImageViews()
 		{
 			Logger() << "Image view [" << i << "] creation failed";
 			std::string errorString = "Failed to create image view [";
-			errorString += i;
+			errorString += std::to_string(i);
 			errorString += "]";
 			throw std::runtime_error(errorString);
 		}
@@ -429,12 +442,15 @@ void VulkanInterface::createGraphicsPipeline()
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
+	auto bindingDescription = getBindingDescription();
+	auto attributeDescription = getAttributeDescription();
+
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexBindingDescriptionCount = 0;
-	vertexInputInfo.pVertexBindingDescriptions = nullptr; // Optional
-	vertexInputInfo.vertexAttributeDescriptionCount = 0;
-	vertexInputInfo.pVertexAttributeDescriptions = nullptr; // Optional
+	vertexInputInfo.vertexBindingDescriptionCount = 1;
+	vertexInputInfo.pVertexBindingDescriptions = &bindingDescription; // Optional
+	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescription.size());
+	vertexInputInfo.pVertexAttributeDescriptions = attributeDescription.data(); // Optional
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -528,7 +544,7 @@ void VulkanInterface::createGraphicsPipeline()
 	pipelineLayoutInfo.setLayoutCount = 0; // Optional
 	pipelineLayoutInfo.pSetLayouts = nullptr; // Optional
 	pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
-	pipelineLayoutInfo.pPushConstantRanges = 0; // Optional
+	pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
 
 	if(vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
 	{
@@ -592,7 +608,7 @@ void VulkanInterface::createFramebuffers()
 		{
 			Logger() << "Framebuffer [" << i << "] creation failed";
 			std::string errorString = "Failed to create framebuffer [";
-			errorString += i;
+			errorString += std::to_string(i);
 			errorString += "]";
 			throw std::runtime_error(errorString);
 		}
@@ -615,6 +631,65 @@ void VulkanInterface::createCommandPool()
 		throw std::runtime_error("Failed to create command pool");
 	}
 	Logger() << "Command pool created";
+}
+
+void VulkanInterface::createVertexBuffer()
+{
+	vertices = {
+			{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+			{{0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+			{{-0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+			{{0.0f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+	};
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+
+	VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	             stagingBuffer, stagingBufferMemory);
+
+	void* data;
+	vkMapMemory(logicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data);
+	memcpy(data, vertices.data(), bufferSize);
+	vkUnmapMemory(logicalDevice, stagingBufferMemory);
+
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+	             vertexBuffer, vertexBufferMemory);
+
+	copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+	vkDestroyBuffer(logicalDevice, stagingBuffer, nullptr);
+	vkFreeMemory(logicalDevice, stagingBufferMemory, nullptr);
+}
+
+void VulkanInterface::createIndexBuffer()
+{
+	indices = {
+			0, 1, 2, 3, 2, 1
+	};
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	             stagingBuffer, stagingBufferMemory);
+	void* data;
+	vkMapMemory(logicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data);
+	memcpy(data, indices.data(), bufferSize);
+	vkUnmapMemory(logicalDevice, stagingBufferMemory);
+
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+	             indexBuffer, indexBufferMemory);
+
+	copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+
+	vkDestroyBuffer(logicalDevice, stagingBuffer, nullptr);
+	vkFreeMemory(logicalDevice, stagingBufferMemory, nullptr);
 }
 
 void VulkanInterface::createCommandBuffers()
@@ -657,7 +732,12 @@ void VulkanInterface::createCommandBuffers()
 		vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-		vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+
+		VkBuffer vertexBuffers[] = {vertexBuffer};
+		VkDeviceSize offsets[] = {0};
+		vkCmdBindVertexBuffers(commandBuffer, 0,1, vertexBuffers, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0,VK_INDEX_TYPE_UINT16);
+		vkCmdDrawIndexed(commandBuffers[i], static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffers[i]);
 
@@ -665,7 +745,7 @@ void VulkanInterface::createCommandBuffers()
 		{
 			Logger() << "Command buffer fill failed [" << i << "]";
 			std::string errorString = "Failed to fill command buffer [";
-			errorString += i;
+			errorString += std::to_string(i);
 			errorString += "]";
 			throw std::runtime_error(errorString);
 		}
@@ -1026,26 +1106,6 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, Window
 	}
 }
 
-std::vector<char> readShaderFile(const std::string& filename)
-{
-	//Seek to end of file to auto-retrieve vector length
-	std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-	if(!file.is_open())
-	{
-		Logger() << "Could not open " << filename;
-		throw std::runtime_error("Failed to open file");
-	}
-
-	auto fileSize = static_cast<size_t>(file.tellg());
-	std::vector<char> buffer(fileSize);
-	file.seekg(0);
-	file.read(buffer.data(), fileSize);
-	file.close();
-
-	return buffer;
-}
-
 VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilename)
 {
 	std::ifstream shaderStream(shaderFilename.c_str(), std::ios::binary);
@@ -1058,13 +1118,129 @@ VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilena
 	shaderCreationInfo.pCode = reinterpret_cast<const uint32_t *>(shaderCode.c_str());
 
 	VkShaderModule shaderModule;
-	if(vkCreateShaderModule(device, &shaderCreationInfo, NULL, &shaderModule) != VK_SUCCESS)
+	if(vkCreateShaderModule(device, &shaderCreationInfo, nullptr, &shaderModule) != VK_SUCCESS)
 	{
 		Logger() << "Shader module creation failed [" << shaderFilename << "]";
-		std::string errorString = "";
+		std::string errorString;
 		throw std::runtime_error("Failed to create shader");
 	}
 	Logger() << "Shader module created [" << shaderFilename << "]";
 
 	return shaderModule;
+}
+
+VkVertexInputBindingDescription getBindingDescription()
+{
+	VkVertexInputBindingDescription bindingDescription = {};
+	bindingDescription.binding = 0;
+	bindingDescription.stride = sizeof(Vertex);
+	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+	return bindingDescription;
+}
+
+std::array<VkVertexInputAttributeDescription, 2> getAttributeDescription()
+{
+	std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+
+	//Position
+	attributeDescriptions[0].binding = 0;
+	attributeDescriptions[0].location = 0;
+	attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+	attributeDescriptions[0].offset = static_cast<uint32_t>(offsetof(Vertex, position));
+
+	//Colour
+	attributeDescriptions[1].binding = 0;
+	attributeDescriptions[1].location = 1;
+	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attributeDescriptions[1].offset = static_cast<uint32_t>(offsetof(Vertex, colour));
+
+	return attributeDescriptions;
+}
+
+uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags)
+{
+	VkPhysicalDeviceMemoryProperties memProperties = {};
+	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+	for(uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
+	{
+		if((typeFilter & (1 << i)) &&
+		   (memProperties.memoryTypes[i].propertyFlags & propertyFlags) == propertyFlags)
+		{
+			return i;
+		}
+	}
+
+	throw std::runtime_error("Failed to find suitable memory type");
+}
+
+void VulkanInterface::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkBuffer &buffer,
+				  VkDeviceMemory &bufferMemory)
+{
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = size;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; //No need to share
+
+	if(vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+	{
+		Logger() << "Buffer creation failed";
+		throw std::runtime_error("Failed to create buffer");
+	}
+	Logger() << "Buffer created";
+
+	VkMemoryRequirements memoryRequirements = {};
+	vkGetBufferMemoryRequirements(logicalDevice, buffer, &memoryRequirements);
+
+	VkMemoryAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memoryRequirements.size;
+	allocInfo.memoryTypeIndex = findMemoryType(physicalDevice, memoryRequirements.memoryTypeBits, propertyFlags);
+
+	if(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
+	{
+		Logger() << "Buffer memory allocation failed";
+		throw std::runtime_error("Failed to allocate buffer memory");
+	}
+	Logger() << "Buffer memory allocated";
+	vkBindBufferMemory(logicalDevice, buffer, bufferMemory, 0);
+}
+
+void VulkanInterface::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+{
+	VkCommandBufferAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = commandPool;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer copyCommandBuffer;
+	vkAllocateCommandBuffers(logicalDevice, &allocInfo, &copyCommandBuffer);
+
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	//Begin recording
+	vkBeginCommandBuffer(copyCommandBuffer, &beginInfo);
+
+	VkBufferCopy copyRegion = {};
+	copyRegion.srcOffset = 0; // Optional
+	copyRegion.dstOffset = 0; // Optional
+	copyRegion.size = size;
+	vkCmdCopyBuffer(copyCommandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+	vkEndCommandBuffer(copyCommandBuffer);
+
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &copyCommandBuffer;
+
+	vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(graphicsQueue);
+
+	vkFreeCommandBuffers(logicalDevice, commandPool, 1, &copyCommandBuffer);
 }

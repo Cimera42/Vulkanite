@@ -7,9 +7,18 @@
 
 #include <vulkan/vulkan.h>
 #include <vector>
+#include <array>
+#include <glm/vec3.hpp>
+#include <glm/vec2.hpp>
 #include "window.h"
 
 #define VALIDATION_LAYERS
+
+struct Vertex
+{
+	glm::vec2 position;
+	glm::vec3 colour;
+};
 
 struct VulkanQueues
 {
@@ -46,6 +55,10 @@ class VulkanInterface
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 	VkCommandPool commandPool;
+	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
+	VkBuffer indexBuffer;
+	VkDeviceMemory indexBufferMemory;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
@@ -65,12 +78,18 @@ class VulkanInterface
 	void createGraphicsPipeline();
 	void createFramebuffers();
 	void createCommandPool();
+	void createVertexBuffer();
+	void createIndexBuffer();
 	void createCommandBuffers();
 	void createSemaphores();
 
 	void cleanupSwapchain(bool delSwapchain);
+	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
 	Window * window;
+	std::vector<Vertex> vertices;
+	std::vector<uint16_t > indices;
 
 
 #ifdef VALIDATION_LAYERS
@@ -106,5 +125,9 @@ VkPresentModeKHR chooseSwapPresentMode(std::vector<VkPresentModeKHR> availablePr
 VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, Window* window);
 
 VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilename);
+
+VkVertexInputBindingDescription getBindingDescription();
+std::array<VkVertexInputAttributeDescription, 2> getAttributeDescription();
+uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
 
 #endif //VULKANITE_VULKANINTERFACE_H
