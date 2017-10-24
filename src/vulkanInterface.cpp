@@ -11,6 +11,9 @@
 #include "vulkanInterface.h"
 #include "logger.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #define LOAD_IFUNCTION(instance, funcName) auto (funcName) = (PFN_ ## funcName) vkGetInstanceProcAddr(instance, #funcName)
 
 VKAPI_ATTR VkBool32 VKAPI_CALL vulkanInterfaceDebugCallback(
@@ -42,6 +45,18 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkanInterfaceDebugCallback(
 VulkanInterface::~VulkanInterface()
 {
 	cleanupSwapchain(true);
+
+//	vkFreeDescriptorSets(logicalDevice, descriptorSet, 0, nullptr);
+//	Logger() << "Descriptor pool destroyed";
+	vkDestroyDescriptorPool(logicalDevice, descriptorPool, nullptr);
+	Logger() << "Descriptor pool destroyed";
+
+	vkDestroyDescriptorSetLayout(logicalDevice, descriptorSetLayout, nullptr);
+	Logger() << "Descriptor set layout destroyed";
+	vkDestroyBuffer(logicalDevice, uniformBuffer, nullptr);
+	Logger() << "Uniform buffer destroyed";
+	vkFreeMemory(logicalDevice, uniformBufferMemory, nullptr);
+	Logger() << "Uniform buffer memory freed";
 
 	vkDestroyBuffer(logicalDevice, indexBuffer, nullptr);
 	Logger() << "Index buffer destroyed";
@@ -114,11 +129,15 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createSwapchain();
 	createImageViews();
 	createRenderPass();
+	createDescriptorSetLayout();
 	createGraphicsPipeline();
 	createFramebuffers();
 	createCommandPool();
 	createVertexBuffer();
 	createIndexBuffer();
+	createUniformBuffer();
+	createDescriptorPool();
+	createDescriptorSet();
 	createCommandBuffers();
 	createSemaphores();
 }
@@ -423,6 +442,28 @@ void VulkanInterface::createRenderPass()
 	Logger() << "Render pass created";
 }
 
+void VulkanInterface::createDescriptorSetLayout()
+{
+	VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+	uboLayoutBinding.binding = 0;
+	uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	uboLayoutBinding.descriptorCount = 1;
+	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	uboLayoutBinding.pImmutableSamplers = nullptr; // Optional
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 1;
+	layoutInfo.pBindings = &uboLayoutBinding;
+
+	if(vkCreateDescriptorSetLayout(logicalDevice, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
+	{
+		Logger() << "Descriptor set layout creation failed";
+		throw std::runtime_error("Failed to create descriptor set layout");
+	}
+	Logger() << "Descriptor set layout created";
+}
+
 void VulkanInterface::createGraphicsPipeline()
 {
 	VkShaderModule vertShaderModule = loadShaderModule(logicalDevice, "shaders/vert.spv");
@@ -482,7 +523,7 @@ void VulkanInterface::createGraphicsPipeline()
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL; //Anything not fill requires gpu feature enable
 	rasterizer.lineWidth = 1.0f; //>1 requires wideLines feature enable
-	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizer.cullMode = VK_CULL_MODE_NONE;
 	rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	rasterizer.depthBiasEnable = VK_FALSE;
 	rasterizer.depthBiasConstantFactor = 0.0f; // Optional
@@ -541,8 +582,8 @@ void VulkanInterface::createGraphicsPipeline()
 	//Used for shader uniforms
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutInfo.setLayoutCount = 0; // Optional
-	pipelineLayoutInfo.pSetLayouts = nullptr; // Optional
+	pipelineLayoutInfo.setLayoutCount = 1; // Optional
+	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout; // Optional
 	pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
 	pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
 
@@ -692,6 +733,70 @@ void VulkanInterface::createIndexBuffer()
 	vkFreeMemory(logicalDevice, stagingBufferMemory, nullptr);
 }
 
+void VulkanInterface::createUniformBuffer()
+{
+	VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+	createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+	             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	             uniformBuffer, uniformBufferMemory);
+}
+
+void VulkanInterface::createDescriptorPool()
+{
+	VkDescriptorPoolSize poolSize = {};
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo = {};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+
+
+	if(vkCreateDescriptorPool(logicalDevice, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+	{
+		Logger() << "Descriptor pool creation failed";
+		throw std::runtime_error("Failed to create descriptor pool");
+	}
+	Logger() << "Descriptor pool created";
+}
+
+void VulkanInterface::createDescriptorSet()
+{
+	VkDescriptorSetLayout layouts[] = {descriptorSetLayout};
+	VkDescriptorSetAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = layouts;
+
+	if(vkAllocateDescriptorSets(logicalDevice, &allocInfo, &descriptorSet) != VK_SUCCESS)
+	{
+		Logger() << "Descriptor set allocation failed";
+		throw std::runtime_error("Failed to allocate descriptor set");
+	}
+	Logger() << "Descriptor set allocated";
+
+	VkDescriptorBufferInfo bufferInfo = {};
+	bufferInfo.buffer = uniformBuffer;
+	bufferInfo.offset = 0;
+	bufferInfo.range = sizeof(UniformBufferObject);
+
+	VkWriteDescriptorSet descriptorWrite = {};
+	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite.dstSet = descriptorSet;
+	descriptorWrite.dstBinding = 0;
+	descriptorWrite.dstArrayElement = 0;
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	descriptorWrite.descriptorCount = 1;
+	descriptorWrite.pBufferInfo = &bufferInfo;
+	descriptorWrite.pImageInfo = nullptr; // Optional
+	descriptorWrite.pTexelBufferView = nullptr; // Optional
+
+	vkUpdateDescriptorSets(logicalDevice, 1, &descriptorWrite, 0, nullptr);
+}
+
 void VulkanInterface::createCommandBuffers()
 {
 	commandBuffers.resize(swapchainFramebuffers.size());
@@ -729,19 +834,22 @@ void VulkanInterface::createCommandBuffers()
 		renderPassInfo.clearValueCount = 1;
 		renderPassInfo.pClearValues = &clearColor;
 
-		vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+		                        0, 1, &descriptorSet, 0, nullptr);
 
 		VkBuffer vertexBuffers[] = {vertexBuffer};
 		VkDeviceSize offsets[] = {0};
 		vkCmdBindVertexBuffers(commandBuffer, 0,1, vertexBuffers, offsets);
 		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0,VK_INDEX_TYPE_UINT16);
-		vkCmdDrawIndexed(commandBuffers[i], static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
-		vkCmdEndRenderPass(commandBuffers[i]);
+		vkCmdEndRenderPass(commandBuffer);
 
-		if(vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS)
+		if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
 		{
 			Logger() << "Command buffer fill failed [" << i << "]";
 			std::string errorString = "Failed to fill command buffer [";
@@ -775,8 +883,29 @@ void VulkanInterface::createSemaphores()
 	Logger() << "Render semaphores created";
 }
 
+void VulkanInterface::updateUniformBuffer()
+{
+	static auto startTime = std::chrono::high_resolution_clock::now();
+
+	auto currentTime = std::chrono::high_resolution_clock::now();
+	float time = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count() / 1000.0f;
+
+	UniformBufferObject ubo = {};
+	ubo.model = ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	ubo.proj = glm::perspective(90.0f, swapchainExtent.width / (float) swapchainExtent.height, 0.1f, 10.0f);
+	ubo.proj[1][1] *= -1; //Flip Y coordinate as its designed for OGL
+
+	void* data;
+	vkMapMemory(logicalDevice, uniformBufferMemory, 0, sizeof(ubo), 0, &data);
+	memcpy(data, &ubo, sizeof(ubo));
+	vkUnmapMemory(logicalDevice, uniformBufferMemory);
+}
+
 void VulkanInterface::draw()
 {
+	updateUniformBuffer();
+
 	uint32_t imageIndex;
 	VkResult result = vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 	if(result == VK_ERROR_OUT_OF_DATE_KHR)

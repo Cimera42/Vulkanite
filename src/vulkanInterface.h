@@ -10,6 +10,7 @@
 #include <array>
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
+#include <glm/mat4x4.hpp>
 #include "window.h"
 
 #define VALIDATION_LAYERS
@@ -18,6 +19,12 @@ struct Vertex
 {
 	glm::vec2 position;
 	glm::vec3 colour;
+};
+
+struct UniformBufferObject {
+	glm::mat4 model;
+	glm::mat4 view;
+	glm::mat4 proj;
 };
 
 struct VulkanQueues
@@ -52,13 +59,18 @@ class VulkanInterface
 	VkSurfaceFormatKHR surfaceFormat;
 	VkExtent2D swapchainExtent;
 	VkRenderPass renderPass;
+	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 	VkCommandPool commandPool;
+	VkDescriptorPool descriptorPool;
+	VkDescriptorSet descriptorSet;
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexBufferMemory;
+	VkBuffer uniformBuffer;
+	VkDeviceMemory uniformBufferMemory;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
@@ -75,14 +87,19 @@ class VulkanInterface
 	void createSwapchain();
 	void createImageViews();
 	void createRenderPass();
+	void createDescriptorSetLayout();
 	void createGraphicsPipeline();
 	void createFramebuffers();
 	void createCommandPool();
 	void createVertexBuffer();
 	void createIndexBuffer();
+	void createUniformBuffer();
+	void createDescriptorPool();
+	void createDescriptorSet();
 	void createCommandBuffers();
 	void createSemaphores();
 
+	void updateUniformBuffer();
 	void cleanupSwapchain(bool delSwapchain);
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
