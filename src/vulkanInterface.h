@@ -17,8 +17,9 @@
 
 struct Vertex
 {
-	glm::vec2 position;
+	glm::vec3 position;
 	glm::vec3 colour;
+	glm::vec2 uvs;
 };
 
 struct UniformBufferObject {
@@ -71,6 +72,13 @@ class VulkanInterface
 	VkDeviceMemory indexBufferMemory;
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
+	VkImage textureImage;
+	VkDeviceMemory textureImageMemory;
+	VkImageView textureImageView;
+	VkSampler textureSampler;
+	VkImage depthImage;
+	VkDeviceMemory depthImageMemory;
+	VkImageView depthImageView;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
@@ -91,6 +99,10 @@ class VulkanInterface
 	void createGraphicsPipeline();
 	void createFramebuffers();
 	void createCommandPool();
+	void createDepthResources();
+	void createTextureImage();
+	void createTextureImageView();
+	void createTextureSampler();
 	void createVertexBuffer();
 	void createIndexBuffer();
 	void createUniformBuffer();
@@ -103,6 +115,11 @@ class VulkanInterface
 	void cleanupSwapchain(bool delSwapchain);
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+	VkCommandBuffer beginSingleTimeCommands();
+	void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+	VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 
 	Window * window;
 	std::vector<Vertex> vertices;
@@ -140,11 +157,16 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurface
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<VkSurfaceFormatKHR> availableFormats);
 VkPresentModeKHR chooseSwapPresentMode(std::vector<VkPresentModeKHR> availablePresentModes);
 VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, Window* window);
+VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+VkFormat findDepthFormat(VkPhysicalDevice device);
+bool hasStencilComponent(VkFormat format);
 
 VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilename);
 
 VkVertexInputBindingDescription getBindingDescription();
-std::array<VkVertexInputAttributeDescription, 2> getAttributeDescription();
+std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription();
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
+
+void createImage(VkPhysicalDevice physicalDevice, VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
 
 #endif //VULKANITE_VULKANINTERFACE_H

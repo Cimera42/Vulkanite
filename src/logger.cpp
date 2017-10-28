@@ -7,33 +7,34 @@
 #include <utility>
 #include <fstream>
 
-Logger::Logger(bool doEndLine, std::string inBetween)
+Logger::Logger(bool doEndLine, std::string inBetween, bool doTimestamp)
 {
 	endLine = doEndLine;
 	between = std::move(inBetween);
 
-	if(endLine)
+	if(doTimestamp)
 	{
 		time_t current_time;
 		std::time(&current_time);
-		
+
 		struct tm * time_info;
 		time_info = localtime(&current_time);
-		
+
 		char timeString[9];  // space for "HH:MM:SS\0"
 		strftime(timeString, sizeof(timeString), "%H:%M:%S", time_info);
 		buffer << "[" << timeString << "] ";
 	}
 }
 Logger::Logger() : Logger(true,"") {}
-Logger::Logger(bool doEndLine) : Logger(doEndLine, ""){}
-Logger::Logger(std::string inBetween) : Logger(true, std::move(inBetween)){}
+Logger::Logger(bool doEndLine) : Logger(doEndLine, "", true){}
+Logger::Logger(bool doEndLine, bool doTimestamp) : Logger(doEndLine, "", doTimestamp){}
+Logger::Logger(std::string inBetween) : Logger(true, std::move(inBetween), true){}
 
 Logger::~Logger()
 {
 	if(endLine)
 		buffer << std::endl;
-	
+
 	std::cout << buffer.rdbuf();
 	filePrint();
 }
@@ -53,7 +54,7 @@ void Logger::initLogger()
 	logFilename += "logs/log_";
 	logFilename.append(timeString);
 	logFilename += ".log";
-	
+
 	logFileOut = new std::ofstream(logFilename, std::ios::out);
 }
 
