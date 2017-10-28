@@ -19,13 +19,14 @@ class Logger
 	std::stringstream buffer;
 
 	static std::ofstream* logFileOut;
-	
+
 	void filePrint();
 
 public:
-	Logger(bool doEndLine, std::string inBetween);
+	Logger(bool doEndLine, std::string inBetween, bool doTimestamp);
 	Logger();
 	explicit Logger(bool doEndLine);
+	explicit Logger(bool doEndLine, bool doTimestamp);
 	explicit Logger(std::string inBetween);
 	static void initLogger();
 	static void close();
