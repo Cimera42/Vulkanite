@@ -15,6 +15,9 @@
 
 #define VALIDATION_LAYERS
 
+class Transform;
+class Camera;
+
 struct Vertex
 {
 	glm::vec3 position;
@@ -111,7 +114,6 @@ class VulkanInterface
 	void createCommandBuffers();
 	void createSemaphores();
 
-	void updateUniformBuffer();
 	void cleanupSwapchain(bool delSwapchain);
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
@@ -144,6 +146,7 @@ public:
 	void initVulkan(Window * window);
 	~VulkanInterface();
 
+	void update(Camera *camera);
 	void draw();
 	void waitForIdle();
 	void recreateSwapchain();
