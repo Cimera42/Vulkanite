@@ -78,7 +78,7 @@ int main()
 	{
 		vulkanInterface->initVulkan(window);
 	} catch(const std::runtime_error& e) {
-		Logger() << " -- #VULKAN ERROR# -- " << e.what();
+		Logger() << " -- #RUNTIME ERROR# -- " << e.what();
 		return EXIT_FAILURE;
 	}
 

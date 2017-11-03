@@ -12,18 +12,13 @@
 #include <glm/vec2.hpp>
 #include <glm/mat4x4.hpp>
 #include "window.h"
+#include "Texture.h"
+#include "Model.h"
 
 #define VALIDATION_LAYERS
 
 class Transform;
 class Camera;
-
-struct Vertex
-{
-	glm::vec3 position;
-	glm::vec3 colour;
-	glm::vec2 uvs;
-};
 
 struct UniformBufferObject {
 	glm::mat4 model;
@@ -53,7 +48,6 @@ class VulkanInterface
 {
 	VkInstance vulkanInstance;
 	VkPhysicalDevice physicalDevice;
-	VkDevice logicalDevice;
 	VulkanQueues queues;
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
@@ -69,16 +63,8 @@ class VulkanInterface
 	VkCommandPool commandPool;
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSet descriptorSet;
-	VkBuffer vertexBuffer;
-	VkDeviceMemory vertexBufferMemory;
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexBufferMemory;
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
-	VkImage textureImage;
-	VkDeviceMemory textureImageMemory;
-	VkImageView textureImageView;
-	VkSampler textureSampler;
 	VkImage depthImage;
 	VkDeviceMemory depthImageMemory;
 	VkImageView depthImageView;
@@ -103,11 +89,6 @@ class VulkanInterface
 	void createFramebuffers();
 	void createCommandPool();
 	void createDepthResources();
-	void createTextureImage();
-	void createTextureImageView();
-	void createTextureSampler();
-	void createVertexBuffer();
-	void createIndexBuffer();
 	void createUniformBuffer();
 	void createDescriptorPool();
 	void createDescriptorSet();
@@ -115,18 +96,13 @@ class VulkanInterface
 	void createSemaphores();
 
 	void cleanupSwapchain(bool delSwapchain);
-	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
-	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+
 	VkCommandBuffer beginSingleTimeCommands();
 	void endSingleTimeCommands(VkCommandBuffer commandBuffer);
-	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
-	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-	VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 
 	Window * window;
-	std::vector<Vertex> vertices;
-	std::vector<uint16_t > indices;
-
+	Texture* texture;
+	Model * model;
 
 #ifdef VALIDATION_LAYERS
 	bool enableValidationLayers = true;
@@ -150,6 +126,19 @@ public:
 	void draw();
 	void waitForIdle();
 	void recreateSwapchain();
+
+	VkDevice logicalDevice;
+
+	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+					  VkMemoryPropertyFlags propertyFlags, VkBuffer &buffer, VkDeviceMemory &bufferMemory);
+
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+
+	void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+
+	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+
+	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 };
 
 bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
@@ -170,6 +159,6 @@ VkVertexInputBindingDescription getBindingDescription();
 std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription();
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
 
-void createImage(VkPhysicalDevice physicalDevice, VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+VkImageView createImageView(VkDevice logicalDevice, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 
 #endif //VULKANITE_VULKANINTERFACE_H
