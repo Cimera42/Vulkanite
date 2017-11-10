@@ -30,7 +30,6 @@ void Mesh::load(aiMesh* assimpMesh)
 	for(unsigned int j = 0; j < assimpMesh->mNumFaces; j++)
 	{
 		aiFace& assimpFace = assimpMesh->mFaces[j];
-
 		for(unsigned int k = 0; k < assimpFace.mNumIndices; k++)
 		{
 			indices.push_back(assimpFace.mIndices[k]);
@@ -43,7 +42,7 @@ void Mesh::load(aiMesh* assimpMesh)
 		vertices.push_back(glmVert);
 
 		aiVector3D uv = assimpMesh->mTextureCoords[0][j];
-		glm::vec2 glmUv = glm::vec2(uv.x,uv.y);
+		glm::vec2 glmUv = glm::vec2(uv.x,1-uv.y);
 		uvs.push_back(glmUv);
 
 		aiVector3D normal = assimpMesh->mNormals[j];

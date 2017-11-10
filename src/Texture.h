@@ -7,6 +7,7 @@
 
 #include <vulkan/vulkan.h>
 #include <stb_image.h>
+#include <string>
 
 class VulkanInterface;
 
@@ -16,6 +17,7 @@ class Texture
 	VkImage textureImage;
 	VkDeviceMemory textureImageMemory;
 
+	std::string filename;
 	stbi_uc* imageData;
 	int width, height, components;
 
@@ -26,7 +28,7 @@ class Texture
 	void createTextureSampler();
 
 public:
-	explicit Texture(VulkanInterface* inVulkanInterface);
+	explicit Texture(VulkanInterface* inVulkanInterface, const std::string &inFilename);
 	~Texture();
 
 	VkImageView textureImageView;

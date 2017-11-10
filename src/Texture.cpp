@@ -6,8 +6,9 @@
 #include "logger.h"
 #include "vulkanInterface.h"
 
-Texture::Texture(VulkanInterface *inVulkanInterface):
-	vki(inVulkanInterface)
+Texture::Texture(VulkanInterface *inVulkanInterface, const std::string &inFilename):
+	vki(inVulkanInterface),
+	filename(inFilename)
 {
 	loadImage();
 	createTextureImageView();
@@ -28,7 +29,7 @@ Texture::~Texture()
 
 void Texture::loadImage()
 {
-	imageData = stbi_load("./images/texture.png", &width, &height, &components, STBI_rgb_alpha);
+	imageData = stbi_load(filename.c_str(), &width, &height, &components, STBI_rgb_alpha);
 
 	if(!imageData)
 	{

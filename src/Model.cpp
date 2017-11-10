@@ -17,6 +17,7 @@ Model::Model(VulkanInterface* inVulkanInterface):
 Model::~Model()
 {
 	delete mesh;
+	delete texture;
 }
 
 void Model::draw(VkCommandBuffer commandBuffer)
@@ -24,7 +25,7 @@ void Model::draw(VkCommandBuffer commandBuffer)
 	VkBuffer vertexBuffers[] = {mesh->vertexBuffer};
 	VkDeviceSize offsets[] = {0};
 	vkCmdBindVertexBuffers(commandBuffer, 0,1, vertexBuffers, offsets);
-	vkCmdBindIndexBuffer(commandBuffer, mesh->indexBuffer, 0,VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(commandBuffer, mesh->indexBuffer, 0,VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh->indices.size()), 1, 0, 0, 0);
 }
 
@@ -33,13 +34,13 @@ void Model::load(std::string filename)
 	Assimp::Importer importer;
 	Logger(1) << "Loading model: " << filename;
 	const aiScene* scene = importer.ReadFile(filename,
-											 aiProcess_CalcTangentSpace |
-											 aiProcess_Triangulate |
-											 aiProcess_JoinIdenticalVertices |
-											 aiProcess_SortByPType |
-											 aiProcess_LimitBoneWeights |
-											 aiProcess_ValidateDataStructure// |
-			//aiProcess_PreTransformVertices
+											 aiProcess_CalcTangentSpace
+											 | aiProcess_Triangulate
+											 | aiProcess_JoinIdenticalVertices
+											 | aiProcess_SortByPType
+											 | aiProcess_LimitBoneWeights
+											 | aiProcess_ValidateDataStructure
+											 | aiProcess_PreTransformVertices
 	);
 
 	if(!scene)
@@ -76,34 +77,31 @@ void Model::load(std::string filename)
 //		animations[anim->name] = anim;
 //	}
 
-//	for(unsigned int i = 0; i < scene->mNumMaterials; i++)
-//	{
-//		aiMaterial* assimpMaterial = scene->mMaterials[i];
-//
-//		aiString nnn;
-//		assimpMaterial->Get(AI_MATKEY_NAME, nnn);
-//		//Don't care about default material
-//		if(strcmp(nnn.C_Str(), AI_DEFAULT_MATERIAL_NAME) == 0)
-//			continue;
-//
-//		Material material = Material();
-//
-//		aiString texPath;
-//		//Retrieve diffuse texture and load it
-//		if(assimpMaterial->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
-//		{
-//			std::string backslashFixed = texPath.C_Str();
-//			std::replace(backslashFixed.begin(), backslashFixed.end(), '\\', '/');
-//
-//			//Convert to correct folder
-//			std::string baseFolder = std::string(filename);
-//			baseFolder = baseFolder.substr(0, baseFolder.find_last_of("/"));
-//			//Load image
-//			material.image = static_cast<ImageAsset*>(AssetManager::i()->loadSync(std::string(baseFolder +"/"+ backslashFixed)));
-//		}
-//
-//		materials.push_back(material);
-//	}
+	for(unsigned int i = 0; i < scene->mNumMaterials; i++)
+	{
+		aiMaterial* assimpMaterial = scene->mMaterials[i];
+
+		aiString nnn;
+		assimpMaterial->Get(AI_MATKEY_NAME, nnn);
+		//Don't care about default material
+		if(strcmp(nnn.C_Str(), AI_DEFAULT_MATERIAL_NAME) == 0)
+			continue;
+
+		aiString texPath;
+		//Retrieve diffuse texture and load it
+		if(assimpMaterial->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
+		{
+			Logger() << texPath.C_Str();
+			std::string backslashFixed = texPath.C_Str();
+			std::replace(backslashFixed.begin(), backslashFixed.end(), '\\', '/');
+
+			//Convert to correct folder
+			std::string baseFolder = std::string(filename);
+			baseFolder = baseFolder.substr(0, baseFolder.find_last_of("/"));
+			//Load image
+			texture = new Texture(vki, std::string(baseFolder + "/" + texPath.C_Str()));
+		}
+	}
 
 	//Collate images for opengl texture array
 //	std::vector<std::string> texPaths;

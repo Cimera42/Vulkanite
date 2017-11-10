@@ -22,6 +22,9 @@ class Camera;
 
 struct UniformBufferObject {
 	glm::mat4 model;
+};
+
+struct PushConstantBufferObject {
 	glm::mat4 view;
 	glm::mat4 proj;
 };
@@ -101,8 +104,8 @@ class VulkanInterface
 	void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
 	Window * window;
-	Texture* texture;
 	Model * model;
+	PushConstantBufferObject pushConstant;
 
 #ifdef VALIDATION_LAYERS
 	bool enableValidationLayers = true;

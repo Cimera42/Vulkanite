@@ -18,7 +18,6 @@ class Model
 {
 	void load(std::string filename);
 
-	Texture * texture;
 	Mesh * mesh;
 
 	VulkanInterface * vki;
@@ -27,6 +26,8 @@ public:
 	explicit Model(VulkanInterface* inVulkanInterface);
 	~Model();
 	void draw(VkCommandBuffer commandBuffer);
+
+	Texture * texture;
 };
 
 

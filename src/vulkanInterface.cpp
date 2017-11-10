@@ -59,8 +59,6 @@ VulkanInterface::~VulkanInterface()
 	vkFreeMemory(logicalDevice, depthImageMemory, nullptr);
 	Logger() << "Depth image memory freed";
 
-	delete texture;
-
 //	vkFreeDescriptorSets(logicalDevice, descriptorSet, 0, nullptr);
 //	Logger() << "Descriptor pool destroyed";
 	vkDestroyDescriptorPool(logicalDevice, descriptorPool, nullptr);
@@ -141,7 +139,6 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createCommandPool();
 	createDepthResources();
 	createFramebuffers();
-	texture = new Texture(this);
 	model = new Model(this);
 	createUniformBuffer();
 	createDescriptorPool();
@@ -601,13 +598,19 @@ void VulkanInterface::createGraphicsPipeline()
 	dynamicState.dynamicStateCount = 2;
 	dynamicState.pDynamicStates = dynamicStates;*/
 
+	VkPushConstantRange pushConstantRange = {};
+	pushConstantRange.size = sizeof(PushConstantBufferObject);
+	pushConstantRange.offset = 0;
+	pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+
 	//Used for shader uniforms
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutInfo.setLayoutCount = 1; // Optional
 	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout; // Optional
-	pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
-	pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
+	pipelineLayoutInfo.pushConstantRangeCount = 1; // Optional
+	pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange; // Optional
 
 	if(vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
 	{
@@ -763,8 +766,8 @@ void VulkanInterface::createDescriptorSet()
 
 	VkDescriptorImageInfo imageInfo = {};
 	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	imageInfo.imageView = texture->textureImageView;
-	imageInfo.sampler = texture->textureSampler;
+	imageInfo.imageView = model->texture->textureImageView;
+	imageInfo.sampler = model->texture->textureSampler;
 
 	std::array<VkWriteDescriptorSet, 2> descriptorWrites = {};
 	descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -875,14 +878,21 @@ void VulkanInterface::update(Camera *camera)
 {
 	UniformBufferObject ubo = {};
 	ubo.model = glm::mat4(1.0f);
-	ubo.view = camera->viewMatrix;
-	ubo.proj = camera->projectionMatrix;
-	//ubo.proj[1][1] *= -1; //Flip Y coordinate as its designed for OGL
 
 	void* data;
 	vkMapMemory(logicalDevice, uniformBufferMemory, 0, sizeof(ubo), 0, &data);
 	memcpy(data, &ubo, sizeof(ubo));
 	vkUnmapMemory(logicalDevice, uniformBufferMemory);
+
+	pushConstant.view = camera->viewMatrix;
+	pushConstant.proj = camera->projectionMatrix;
+	//ubo.proj[1][1] *= -1; //Flip Y coordinate as its designed for OGL
+
+	beginSingleTimeCommands();
+	VkCommandBuffer pushCmdBuffer = beginSingleTimeCommands();
+	vkCmdPushConstants(pushCmdBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+	                   0, sizeof(PushConstantBufferObject), &pushConstant);
+	endSingleTimeCommands(pushCmdBuffer);
 }
 
 void VulkanInterface::draw()

@@ -41,7 +41,7 @@ public:
 
 	VkBuffer vertexBuffer;
 	VkBuffer indexBuffer;
-	std::vector<unsigned int> indices;
+	std::vector<uint32_t> indices;
 };
 
 #endif //VULKANITE_MESH_H
