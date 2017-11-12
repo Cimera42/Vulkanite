@@ -17,12 +17,13 @@ layout(binding = 0) uniform UniformBufferObject {
 } ubo;
 
 layout(push_constant) uniform PushConstantBufferObject {
+    mat4 model;
     mat4 view;
     mat4 proj;
 } pcbo;
 
 void main()
 {
-    gl_Position = pcbo.proj * pcbo.view * ubo.model * vec4(inPosition, 1.0);
+    gl_Position = pcbo.proj * pcbo.view * pcbo.model * vec4(inPosition, 1.0);
     fragUV = inUV;
 }

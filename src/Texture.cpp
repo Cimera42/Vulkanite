@@ -93,10 +93,6 @@ void Texture::createTextureSampler()
 	samplerInfo.minLod = 0.0f;
 	samplerInfo.maxLod = 0.0f;
 
-	if(vkCreateSampler(vki->logicalDevice, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS)
-	{
-		Logger() << "Texture sampler creation failed";
-		throw std::runtime_error("Failed to create texture sampler");
-	}
+	VK_RESULT_CHECK(vkCreateSampler(vki->logicalDevice, &samplerInfo, nullptr, &textureSampler))
 	Logger() << "Texture sampler created";
 }

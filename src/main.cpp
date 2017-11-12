@@ -9,6 +9,7 @@
 #include "Camera.h"
 #include "Transform.h"
 #include "KeyboardInput.h"
+#include "SpecificThreadPool.h"
 
 bool shouldExit = false;
 glm::vec2 storedLastPos = glm::vec2(0,0);
@@ -60,6 +61,7 @@ int main()
 {
 	Logger::initLogger();
 	Logger() << "First Line of Program";
+
 	if(!glfwInit())
 	{
 		Logger() << "GLFW init failed";
@@ -77,83 +79,84 @@ int main()
 	try
 	{
 		vulkanInterface->initVulkan(window);
+
+		glfwSetWindowSizeCallback(window->glfwWindow, windowResize);
+		glfwSetWindowUserPointer(window->glfwWindow, vulkanInterface);
+
+		auto camera = new Camera(90.0f, static_cast<float>(window->width / window->height), 0.001f, 100.0f);
+		cameraTransform = new Transform(glm::vec3(0.0f,0.0f,-3.0f), glm::quat(0.0f,0.0f,0.0f,1.0f), glm::vec3(1.0f,1.0f,1.0f));
+		keyboardInput = new KeyboardInput();
+
+		//Timekeeping for deltatime and fps counter
+		std::chrono::time_point<std::chrono::steady_clock> start, previous, current, then;
+		start = std::chrono::steady_clock::now();
+		previous = start;
+		then = start;
+		int frames = 0;
+		while(!shouldExit)
+		{
+			current = std::chrono::steady_clock::now();
+			std::chrono::duration<double> dt = (current - previous);
+			previous = current;
+			double dtf = dt.count();
+
+			glm::vec3 displaced = cameraTransform->position;
+			if(keyboardInput->isKeyPressed('W'))
+				displaced += cameraTransform->forward * ((float)dtf) * 5.0f;
+
+			if(keyboardInput->isKeyPressed('S'))
+				displaced -= cameraTransform->forward * ((float)dtf) * 5.0f;
+
+			if(keyboardInput->isKeyPressed('D'))
+				displaced -= cameraTransform->right * ((float)dtf) * 5.0f;
+
+			if(keyboardInput->isKeyPressed('A'))
+				displaced += cameraTransform->right * ((float)dtf) * 5.0f;
+
+			if(keyboardInput->isKeyPressed(' '))
+				displaced += glm::vec3(0, 1, 0) * ((float)dtf) * 5.0f;
+
+			if(keyboardInput->isKeyPressed(340))
+				displaced -= glm::vec3(0, 1, 0) * ((float)dtf) * 5.0f;
+
+			cameraTransform->position = displaced;
+
+			camera->lookAt(cameraTransform->position, cameraTransform->position + cameraTransform->forward, cameraTransform->up);
+
+			vulkanInterface->update(camera);
+			vulkanInterface->draw();
+
+			frames++;
+			if(((std::chrono::duration<double>)(current - then)).count() > 1.0)
+			{
+				glfwSetWindowTitle(window->glfwWindow, std::to_string(frames).c_str());
+				frames = 0;
+				then = current;
+			}
+			if(glfwGetKey(window->glfwWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+				shouldExit = true;
+			glfwPollEvents();
+		}
+
+		vulkanInterface->waitForIdle();
+
+		Logger() << "Begin destruction";
+		delete camera;
+		delete cameraTransform;
+		delete keyboardInput;
+		delete window;
+		Logger() << "Window destroyed";
+		glfwTerminate();
+		Logger() << "GLFW destroyed";
+		delete vulkanInterface;
+		Logger() << "Vulkan destroyed";
+
+		Logger::close();
+
 	} catch(const std::runtime_error& e) {
 		Logger() << " -- #RUNTIME ERROR# -- " << e.what();
 		return EXIT_FAILURE;
 	}
-
-	glfwSetWindowSizeCallback(window->glfwWindow, windowResize);
-	glfwSetWindowUserPointer(window->glfwWindow, vulkanInterface);
-
-	auto camera = new Camera(90.0f, static_cast<float>(window->width / window->height), 0.001f, 100.0f);
-	cameraTransform = new Transform(glm::vec3(0.0f,0.0f,-3.0f), glm::quat(0.0f,0.0f,0.0f,1.0f), glm::vec3(1.0f,1.0f,1.0f));
-	keyboardInput = new KeyboardInput();
-
-	//Timekeeping for deltatime and fps counter
-	std::chrono::time_point<std::chrono::steady_clock> start, previous, current, then;
-	start = std::chrono::steady_clock::now();
-	previous = start;
-	then = start;
-	int frames = 0;
-	while(!shouldExit)
-	{
-		current = std::chrono::steady_clock::now();
-		std::chrono::duration<double> dt = (current - previous);
-		previous = current;
-		double dtf = dt.count();
-
-		glm::vec3 displaced = cameraTransform->position;
-		if(keyboardInput->isKeyPressed('W'))
-			displaced += cameraTransform->forward * ((float)dtf) * 5.0f;
-
-		if(keyboardInput->isKeyPressed('S'))
-			displaced -= cameraTransform->forward * ((float)dtf) * 5.0f;
-
-		if(keyboardInput->isKeyPressed('D'))
-			displaced -= cameraTransform->right * ((float)dtf) * 5.0f;
-
-		if(keyboardInput->isKeyPressed('A'))
-			displaced += cameraTransform->right * ((float)dtf) * 5.0f;
-
-		if(keyboardInput->isKeyPressed(' '))
-			displaced += glm::vec3(0, 1, 0) * ((float)dtf) * 5.0f;
-
-		if(keyboardInput->isKeyPressed(340))
-			displaced -= glm::vec3(0, 1, 0) * ((float)dtf) * 5.0f;
-
-		cameraTransform->position = displaced;
-
-		camera->lookAt(cameraTransform->position, cameraTransform->position + cameraTransform->forward, cameraTransform->up);
-
-		vulkanInterface->update(camera);
-		vulkanInterface->draw();
-
-		frames++;
-		if(((std::chrono::duration<double>)(current - then)).count() > 1.0)
-		{
-			glfwSetWindowTitle(window->glfwWindow, std::to_string(frames).c_str());
-			frames = 0;
-			then = current;
-		}
-		if(glfwGetKey(window->glfwWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-			shouldExit = true;
-		glfwPollEvents();
-	}
-
-	vulkanInterface->waitForIdle();
-
-	Logger() << "Begin destruction";
-	delete camera;
-	delete cameraTransform;
-	delete keyboardInput;
-	delete window;
-	Logger() << "Window destroyed";
-	glfwTerminate();
-	Logger() << "GLFW destroyed";
-	delete vulkanInterface;
-	Logger() << "Vulkan destroyed";
-
-	Logger::close();
 
 	return EXIT_SUCCESS;
 }

@@ -7,6 +7,7 @@
 #include <string>
 #include <glm/vec3.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <mutex>
 
 #ifdef REACT_PHYSICS_3D
 #include <reactphysics3d.h>
@@ -19,6 +20,9 @@ class Logger
 	std::stringstream buffer;
 
 	static std::ofstream* logFileOut;
+
+	//Prevent collisions by multithreading
+	static std::mutex syncMutex;
 
 	void filePrint();
 

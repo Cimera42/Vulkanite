@@ -19,6 +19,7 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <random>
 
 #define LOAD_IFUNCTION(instance, funcName) auto (funcName) = (PFN_ ## funcName) vkGetInstanceProcAddr(instance, #funcName)
 
@@ -44,13 +45,22 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkanInterfaceDebugCallback(
 	if((flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) == VK_DEBUG_REPORT_ERROR_BIT_EXT)
 		Logger(false, false) << "ERROR ";
 
-	Logger(true, false) << "\"" << pMessage << "\"";
+	Logger(true, false) << "\"" << pMessage << "\" " << objectType << " : " << object;
 	return VK_FALSE;
 }
 
 VulkanInterface::~VulkanInterface()
 {
 	cleanupSwapchain(true);
+
+	threadPool.destroy();
+	for(auto &i : threadData)
+	{
+		vkFreeCommandBuffers(logicalDevice, i.commandPool, numPerThread, i.commandBuffers.data());
+		vkDestroyCommandPool(logicalDevice, i.commandPool, nullptr);
+	}
+
+	vkDestroyFence(logicalDevice, renderFence, nullptr);
 
 	vkDestroyImageView(logicalDevice, depthImageView, nullptr);
 	Logger() << "Depth image view destroyed";
@@ -99,8 +109,7 @@ void VulkanInterface::cleanupSwapchain(bool delSwapchain)
 		i++;
 	}
 
-	vkFreeCommandBuffers(logicalDevice, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
-	Logger() << "Command buffers freed";
+	vkFreeCommandBuffers(logicalDevice, commandPool, 1, &primaryCommandBuffer);
 
 	vkDestroyPipeline(logicalDevice, graphicsPipeline, nullptr);
 	Logger() << "Graphics pipeline destroyed";
@@ -144,7 +153,7 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createDescriptorPool();
 	createDescriptorSet();
 	createCommandBuffers();
-	createSemaphores();
+	createSemaphoresAndFences();
 }
 
 void VulkanInterface::recreateSwapchain()
@@ -192,12 +201,8 @@ void VulkanInterface::createInstance()
 	else
 		createInfo.enabledLayerCount = 0;
 
-	if(vkCreateInstance(&createInfo, nullptr, &vulkanInstance) != VK_SUCCESS)
-	{
-		Logger() << "Vulkan Instance create failed";
-		throw std::runtime_error("Failed to create instance");
-	}
-	Logger() << "Vulkan Instance create success";
+	VK_RESULT_CHECK(vkCreateInstance(&createInfo, nullptr, &vulkanInstance))
+	Logger() << "Vulkan instance create success";
 
 	//Retrieve extension
 	uint32_t extensionCount = 0;
@@ -213,11 +218,7 @@ void VulkanInterface::createInstance()
 
 void VulkanInterface::createSurface()
 {
-	if(glfwCreateWindowSurface(vulkanInstance, window->glfwWindow, nullptr, &surface) != VK_SUCCESS)
-	{
-		Logger() << "GLFW Window Surface creation failed";
-		throw std::runtime_error("Failed to create window surface");
-	}
+	VK_RESULT_CHECK(glfwCreateWindowSurface(vulkanInstance, window->glfwWindow, nullptr, &surface))
 	Logger() << "GLFW Window Surface Created";
 }
 
@@ -283,11 +284,7 @@ void VulkanInterface::createLogicalDevice()
 	else
 		createInfo.enabledLayerCount = 0;
 
-	if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &logicalDevice) != VK_SUCCESS)
-	{
-		Logger() << "Vulkan Logical Device create failed";
-		throw std::runtime_error("Failed to create logical device");
-	}
+	VK_RESULT_CHECK(vkCreateDevice(physicalDevice, &createInfo, nullptr, &logicalDevice))
 	Logger() << "Vulkan Logical Device created";
 
 	vkGetDeviceQueue(logicalDevice, static_cast<uint32_t>(queues.graphicsFamily), 0, &graphicsQueue);
@@ -346,11 +343,7 @@ void VulkanInterface::createSwapchain()
 	else
 		createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-	if(vkCreateSwapchainKHR(logicalDevice, &createInfo, nullptr, &swapchain) != VK_SUCCESS)
-	{
-		Logger() << "Swapchain create failed";
-		throw std::runtime_error("Failed to create swapchain");
-	}
+	VK_RESULT_CHECK(vkCreateSwapchainKHR(logicalDevice, &createInfo, nullptr, &swapchain))
 	Logger() << "Swapchain created";
 
 	if(hasSwapchain)
@@ -433,11 +426,7 @@ void VulkanInterface::createRenderPass()
 	renderPassInfo.dependencyCount = 1;
 	renderPassInfo.pDependencies = &dependency;
 
-	if(vkCreateRenderPass(logicalDevice, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
-	{
-		Logger() << "Render pass creation failed";
-		throw std::runtime_error("Failed to create render pass");
-	}
+	VK_RESULT_CHECK(vkCreateRenderPass(logicalDevice, &renderPassInfo, nullptr, &renderPass))
 	Logger() << "Render pass created";
 }
 
@@ -463,11 +452,7 @@ void VulkanInterface::createDescriptorSetLayout()
 	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
 	layoutInfo.pBindings = bindings.data();
 
-	if(vkCreateDescriptorSetLayout(logicalDevice, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
-	{
-		Logger() << "Descriptor set layout creation failed";
-		throw std::runtime_error("Failed to create descriptor set layout");
-	}
+	VK_RESULT_CHECK(vkCreateDescriptorSetLayout(logicalDevice, &layoutInfo, nullptr, &descriptorSetLayout))
 	Logger() << "Descriptor set layout created";
 }
 
@@ -612,11 +597,7 @@ void VulkanInterface::createGraphicsPipeline()
 	pipelineLayoutInfo.pushConstantRangeCount = 1; // Optional
 	pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange; // Optional
 
-	if(vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
-	{
-		Logger() << "Pipeline layout creation failed";
-		throw std::runtime_error("Failed to create pipeline layout");
-	}
+	VK_RESULT_CHECK(vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout))
 	Logger() << "Pipeline layout created";
 
 	VkGraphicsPipelineCreateInfo pipelineInfo = {};
@@ -639,11 +620,7 @@ void VulkanInterface::createGraphicsPipeline()
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 	pipelineInfo.basePipelineIndex = -1; // Optional
 
-	if(vkCreateGraphicsPipelines(logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
-	{
-		Logger() << "Graphics pipeline creation failed";
-		throw std::runtime_error("Failed to create graphics pipeline");
-	}
+	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline))
 	Logger() << "Graphics pipeline created";
 
 	vkDestroyShaderModule(logicalDevice, vertShaderModule, nullptr);
@@ -671,13 +648,14 @@ void VulkanInterface::createFramebuffers()
 		framebufferInfo.height = swapchainExtent.height;
 		framebufferInfo.layers = 1;
 
-		if(vkCreateFramebuffer(logicalDevice, &framebufferInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS)
+		VkResult res = vkCreateFramebuffer(logicalDevice, &framebufferInfo, nullptr, &swapchainFramebuffers[i]);
+		if(res != VK_SUCCESS)
 		{
 			Logger() << "Framebuffer [" << i << "] creation failed";
 			std::string errorString = "Failed to create framebuffer [";
 			errorString += std::to_string(i);
 			errorString += "]";
-			throw std::runtime_error(errorString);
+			VK_RESULT_CHECK(res)
 		}
 		Logger() << "Framebuffer [" << i << "] created";
 
@@ -690,13 +668,9 @@ void VulkanInterface::createCommandPool()
 	VkCommandPoolCreateInfo poolInfo = {};
 	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	poolInfo.queueFamilyIndex = static_cast<uint32_t>(queues.graphicsFamily);
-	poolInfo.flags = 0; // Optional
+	poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // Optional
 
-	if(vkCreateCommandPool(logicalDevice, &poolInfo, nullptr, &commandPool) != VK_SUCCESS)
-	{
-		Logger() << "Command pool creation failed";
-		throw std::runtime_error("Failed to create command pool");
-	}
+	VK_RESULT_CHECK(vkCreateCommandPool(logicalDevice, &poolInfo, nullptr, &commandPool))
 	Logger() << "Command pool created";
 }
 
@@ -735,11 +709,7 @@ void VulkanInterface::createDescriptorPool()
 	poolInfo.pPoolSizes = poolSizes.data();
 	poolInfo.maxSets = 1;
 
-	if(vkCreateDescriptorPool(logicalDevice, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
-	{
-		Logger() << "Descriptor pool creation failed";
-		throw std::runtime_error("Failed to create descriptor pool");
-	}
+	VK_RESULT_CHECK(vkCreateDescriptorPool(logicalDevice, &poolInfo, nullptr, &descriptorPool))
 	Logger() << "Descriptor pool created";
 }
 
@@ -752,11 +722,7 @@ void VulkanInterface::createDescriptorSet()
 	allocInfo.descriptorSetCount = 1;
 	allocInfo.pSetLayouts = layouts;
 
-	if(vkAllocateDescriptorSets(logicalDevice, &allocInfo, &descriptorSet) != VK_SUCCESS)
-	{
-		Logger() << "Descriptor set allocation failed";
-		throw std::runtime_error("Failed to allocate descriptor set");
-	}
+	VK_RESULT_CHECK(vkAllocateDescriptorSets(logicalDevice, &allocInfo, &descriptorSet))
 	Logger() << "Descriptor set allocated";
 
 	VkDescriptorBufferInfo bufferInfo = {};
@@ -791,87 +757,118 @@ void VulkanInterface::createDescriptorSet()
 
 void VulkanInterface::createCommandBuffers()
 {
-	commandBuffers.resize(swapchainFramebuffers.size());
-
 	VkCommandBufferAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	allocInfo.commandPool = commandPool;
 	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	allocInfo.commandBufferCount = (uint32_t) commandBuffers.size();
+	allocInfo.commandBufferCount = 1;
 
-	if(vkAllocateCommandBuffers(logicalDevice, &allocInfo, commandBuffers.data()) != VK_SUCCESS)
+	VK_RESULT_CHECK(vkAllocateCommandBuffers(logicalDevice, &allocInfo, &primaryCommandBuffer))
+	Logger() << "Primary command buffer allocated";
+
+//	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+//	VK_RESULT_CHECK(vkAllocateCommandBuffers(logicalDevice, &allocInfo, &secondaryCommandBuffer))
+//	Logger() << "Secondary command buffer allocated";
+
+	threadPool.resize(numThread);
+	threadData.resize(numThread);
+
+	for(int i = 0; i < numThread; i++)
 	{
-		Logger() << "Command buffer allocation failed";
-		throw std::runtime_error("Failed to allocate command buffers");
-	}
-	Logger() << "Command buffers allocated";
+		ThreadData* thread = &threadData[i];
 
-	int i = 0;
-	for(const auto& commandBuffer : commandBuffers)
-	{
-		VkCommandBufferBeginInfo beginInfo = {};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-		beginInfo.pInheritanceInfo = nullptr; // Optional
+		VkCommandPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.queueFamilyIndex = static_cast<uint32_t>(queues.graphicsFamily);
+		poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // Optional
 
-		vkBeginCommandBuffer(commandBuffer, &beginInfo);
+		VK_RESULT_CHECK(vkCreateCommandPool(logicalDevice, &poolInfo, nullptr, &thread->commandPool))
+		Logger() << "Command pool created";
 
-		std::array<VkClearValue,2> clearValues = {};
-		clearValues[0].color = {0.63f, 0.9f, 0.61f, 1.0f};
-		clearValues[1].depthStencil = {1.0f, 0};
+		thread->commandBuffers.resize(numPerThread);
 
-		VkRenderPassBeginInfo renderPassInfo = {};
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassInfo.renderPass = renderPass;
-		renderPassInfo.framebuffer = swapchainFramebuffers[i];
-		renderPassInfo.renderArea.offset = {0, 0};
-		renderPassInfo.renderArea.extent = swapchainExtent;
-		renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-		renderPassInfo.pClearValues = clearValues.data();
+		VkCommandBufferAllocateInfo subAllocInfo = {};
+		subAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		subAllocInfo.commandPool = thread->commandPool;
+		subAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+		subAllocInfo.commandBufferCount = numPerThread;
 
-		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		Logger() << subAllocInfo.commandPool;
 
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+		VK_RESULT_CHECK(vkAllocateCommandBuffers(logicalDevice, &subAllocInfo, thread->commandBuffers.data()))
+		Logger() << "Sub command buffers allocated";
 
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-		                        0, 1, &descriptorSet, 0, nullptr);
-
-		model->draw(commandBuffer);
-
-		vkCmdEndRenderPass(commandBuffer);
-
-		if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
+		thread->modelPositions.resize(numPerThread);
+		thread->pushConstantBlock.resize(numPerThread);
+		for(int j = 0; j < numPerThread; j++)
 		{
-			Logger() << "Command buffer fill failed [" << i << "]";
-			std::string errorString = "Failed to fill command buffer [";
-			errorString += std::to_string(i);
-			errorString += "]";
-			throw std::runtime_error(errorString);
+			thread->modelPositions[j] = glm::vec3(i*2,j*2,i*j);
 		}
-		Logger() << "Command buffer filled [" << i << "]";
-
-		i++;
 	}
 }
 
-void VulkanInterface::createSemaphores()
+void VulkanInterface::threadedRender(int threadIndex, int objectIndex, VkCommandBufferInheritanceInfo inheritanceInfo)
+{
+	ThreadData* thread = &threadData[threadIndex];
+	glm::vec3 modelPosition = thread->modelPositions[objectIndex];
+
+	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+	commandBufferBeginInfo.pInheritanceInfo = &inheritanceInfo;
+
+	VkCommandBuffer commandBuffer = thread->commandBuffers[objectIndex];
+
+	VK_RESULT_CHECK(vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo))
+
+	VkViewport viewport = {};
+	viewport.width = window->width;
+	viewport.height = window->height;
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+	VkRect2D scissor = {};
+	scissor.extent = swapchainExtent;
+	scissor.offset = {0,0};
+	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+	thread->pushConstantBlock[objectIndex].view = pushConstant.view;
+	thread->pushConstantBlock[objectIndex].proj = pushConstant.proj;
+	thread->pushConstantBlock[objectIndex].model = glm::translate(glm::mat4(1.0f), modelPosition);
+
+	vkCmdPushConstants(
+			commandBuffer,
+			pipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT,
+			0, sizeof(PushConstantBufferObject),
+			&thread->pushConstantBlock[objectIndex]
+	);
+
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+	                        0, 1, &descriptorSet, 0, nullptr);
+
+	model->draw(commandBuffer);
+
+	VK_RESULT_CHECK(vkEndCommandBuffer(commandBuffer));
+}
+
+void VulkanInterface::createSemaphoresAndFences()
 {
 	VkSemaphoreCreateInfo semaphoreInfo = {};
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-	if(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS)
-	{
-		Logger() << "Image semaphore creation failed";
-		throw std::runtime_error("Failed to create image semaphores");
-	}
+	VK_RESULT_CHECK(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphore))
 	Logger() << "Image semaphore created";
 
-	if(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS)
-	{
-		Logger() << "Render semaphore creation failed";
-		throw std::runtime_error("Failed to create render semaphores");
-	}
+	VK_RESULT_CHECK(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphore))
 	Logger() << "Render semaphores created";
+
+	VkFenceCreateInfo fenceCreateInfo = {};
+	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	VK_RESULT_CHECK(vkCreateFence(logicalDevice, &fenceCreateInfo, nullptr, &renderFence))
 }
 
 void VulkanInterface::update(Camera *camera)
@@ -888,49 +885,106 @@ void VulkanInterface::update(Camera *camera)
 	pushConstant.proj = camera->projectionMatrix;
 	//ubo.proj[1][1] *= -1; //Flip Y coordinate as its designed for OGL
 
-	beginSingleTimeCommands();
-	VkCommandBuffer pushCmdBuffer = beginSingleTimeCommands();
-	vkCmdPushConstants(pushCmdBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
-	                   0, sizeof(PushConstantBufferObject), &pushConstant);
-	endSingleTimeCommands(pushCmdBuffer);
+//	beginSingleTimeCommands();
+//	VkCommandBuffer pushCmdBuffer = beginSingleTimeCommands();
+//	vkCmdPushConstants(pushCmdBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+//	                   0, sizeof(PushConstantBufferObject), &pushConstant);
+//	endSingleTimeCommands(pushCmdBuffer);
+}
+
+void VulkanInterface::updateCommandBuffers(VkFramebuffer framebuffer)
+{
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+	std::array<VkClearValue,2> clearValues = {};
+	clearValues[0].color = {0.63f, 0.9f, 0.61f, 1.0f};
+	clearValues[1].depthStencil = {1.0f, 0};
+
+	VkRenderPassBeginInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassInfo.renderPass = renderPass;
+	renderPassInfo.framebuffer = framebuffer;
+	renderPassInfo.renderArea.offset = {0, 0};
+	renderPassInfo.renderArea.extent = swapchainExtent;
+	renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+	renderPassInfo.pClearValues = clearValues.data();
+
+	VK_RESULT_CHECK(vkBeginCommandBuffer(primaryCommandBuffer, &beginInfo))
+
+	vkCmdBeginRenderPass(primaryCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+
+	VkCommandBufferInheritanceInfo inheritanceInfo = {};
+	inheritanceInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+	inheritanceInfo.renderPass = renderPass;
+	inheritanceInfo.framebuffer = framebuffer;
+
+	std::vector<VkCommandBuffer> commandBuffers;
+
+	for(int i = 0; i < numThread; i++)
+	{
+		for(int j = 0; j < numPerThread; j++)
+		{
+			//Create new thread and run>
+			threadPool.addJob([=]{threadedRender(i,j, inheritanceInfo);}, i);
+		}
+	}
+	//Wait for all threads to finish>
+	threadPool.wait();
+
+	for(int i = 0; i < numThread; i++)
+	{
+		for(int j = 0; j < numPerThread; j++)
+		{
+			commandBuffers.push_back(threadData[i].commandBuffers[j]);
+		}
+	}
+	vkCmdExecuteCommands(primaryCommandBuffer, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+
+	vkCmdEndRenderPass(primaryCommandBuffer);
+
+	VK_RESULT_CHECK(vkEndCommandBuffer(primaryCommandBuffer))
 }
 
 void VulkanInterface::draw()
 {
 	uint32_t imageIndex;
 	VkResult result = vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-	if(result == VK_ERROR_OUT_OF_DATE_KHR)
+	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
 	{
 		recreateSwapchain();
 		return;
 	}
-	else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-	{
-		Logger() << "Swapchain image acquiring failed";
-		throw std::runtime_error("Failed to acqurie swapchain image");
-	}
+	else
+		VK_RESULT_CHECK(result)
+
+	updateCommandBuffers(swapchainFramebuffers[imageIndex]);
 
 	VkSubmitInfo submitInfo = {};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &primaryCommandBuffer;
 
 	VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
 	VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 	submitInfo.waitSemaphoreCount = 1;
 	submitInfo.pWaitSemaphores = waitSemaphores;
 	submitInfo.pWaitDstStageMask = waitStages;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
 
 	VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = signalSemaphores;
 
-	if(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS)
+	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, renderFence))
+
+	VkResult fenceRes;
+	do
 	{
-		Logger() << "Draw command buffer submit failed";
-		throw std::runtime_error("Failed to submit draw command buffer");
+		fenceRes = vkWaitForFences(logicalDevice, 1, &renderFence, VK_TRUE, 100000000);
 	}
-	//Logger() << "Draw command buffer submitted";
+	while(fenceRes == VK_TIMEOUT);
+	VK_RESULT_CHECK(fenceRes)
+	vkResetFences(logicalDevice, 1, &renderFence);
 
 	//Submit frame to swapchain
 	VkPresentInfoKHR presentInfo = {};
@@ -946,16 +1000,6 @@ void VulkanInterface::draw()
 	presentInfo.pResults = nullptr; // Optional
 
 	result = vkQueuePresentKHR(presentQueue, &presentInfo);
-
-	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
-	{
-		recreateSwapchain();
-	}
-	else if(result != VK_SUCCESS)
-	{
-		Logger() << "Swapchain image presentation failed";
-		throw std::runtime_error("Failed to present swapchain image");
-	}
 
 	vkQueueWaitIdle(presentQueue);
 
@@ -1276,11 +1320,12 @@ VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilena
 	shaderCreationInfo.pCode = reinterpret_cast<const uint32_t *>(shaderCode.c_str());
 
 	VkShaderModule shaderModule;
-	if(vkCreateShaderModule(device, &shaderCreationInfo, nullptr, &shaderModule) != VK_SUCCESS)
+	VkResult res = vkCreateShaderModule(device, &shaderCreationInfo, nullptr, &shaderModule);
+	if(res != VK_SUCCESS)
 	{
 		Logger() << "Shader module creation failed [" << shaderFilename << "]";
 		std::string errorString;
-		throw std::runtime_error("Failed to create shader");
+		VK_RESULT_CHECK(res)
 	}
 	Logger() << "Shader module created [" << shaderFilename << "]";
 
@@ -1348,11 +1393,7 @@ void VulkanInterface::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 	bufferInfo.usage = usage;
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; //No need to share
 
-	if(vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
-	{
-		Logger() << "Buffer creation failed";
-		throw std::runtime_error("Failed to create buffer");
-	}
+	VK_RESULT_CHECK(vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &buffer))
 	Logger() << "Buffer created";
 
 	VkMemoryRequirements memoryRequirements = {};
@@ -1363,11 +1404,7 @@ void VulkanInterface::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 	allocInfo.allocationSize = memoryRequirements.size;
 	allocInfo.memoryTypeIndex = findMemoryType(physicalDevice, memoryRequirements.memoryTypeBits, propertyFlags);
 
-	if(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
-	{
-		Logger() << "Buffer memory allocation failed";
-		throw std::runtime_error("Failed to allocate buffer memory");
-	}
+	VK_RESULT_CHECK(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &bufferMemory))
 	Logger() << "Buffer memory allocated";
 	vkBindBufferMemory(logicalDevice, buffer, bufferMemory, 0);
 }
@@ -1546,11 +1583,7 @@ void VulkanInterface::createImage(uint32_t width, uint32_t height, VkFormat form
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-	if(vkCreateImage(logicalDevice, &imageInfo, nullptr, &image) != VK_SUCCESS)
-	{
-		Logger() << "Image creation failed";
-		throw std::runtime_error("Failed to create image");
-	}
+	VK_RESULT_CHECK(vkCreateImage(logicalDevice, &imageInfo, nullptr, &image))
 	Logger() << "Image created";
 
 	VkMemoryRequirements memRequirements = {};
@@ -1561,11 +1594,7 @@ void VulkanInterface::createImage(uint32_t width, uint32_t height, VkFormat form
 	allocInfo.allocationSize = memRequirements.size;
 	allocInfo.memoryTypeIndex = findMemoryType(physicalDevice, memRequirements.memoryTypeBits, properties);
 
-	if(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &imageMemory) != VK_SUCCESS)
-	{
-		Logger() << "Image memory allocation failed";
-		throw std::runtime_error("Failed to allocate image memory");
-	}
+	VK_RESULT_CHECK(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &imageMemory))
 	Logger() << "Image memory allocated";
 
 	vkBindImageMemory(logicalDevice, image, imageMemory, 0);
@@ -1585,11 +1614,7 @@ VkImageView createImageView(VkDevice logicalDevice, VkImage image, VkFormat form
 	viewInfo.subresourceRange.layerCount = 1;
 
 	VkImageView imageView;
-	if (vkCreateImageView(logicalDevice, &viewInfo, nullptr, &imageView) != VK_SUCCESS)
-	{
-		Logger() << "Image view creation failed";
-		throw std::runtime_error("Failed to create image view");
-	}
+	VK_RESULT_CHECK(vkCreateImageView(logicalDevice, &viewInfo, nullptr, &imageView))
 	Logger() << "Image view created";
 
 	return imageView;

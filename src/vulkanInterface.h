@@ -14,8 +14,20 @@
 #include "window.h"
 #include "Texture.h"
 #include "Model.h"
+#include "SpecificThreadPool.h"
 
 #define VALIDATION_LAYERS
+
+#define S1(x) #x
+#define S2(x) S1(x)
+#define VK_RESULT_CHECK(res) \
+{ \
+	if((res) != VK_SUCCESS) \
+	{ \
+		Logger() << "Vulkan error in " << __FILE__ << " on line " << __LINE__; \
+		throw std::runtime_error("Vulkan error in " __FILE__ " on line " S2(__LINE__)); \
+	} \
+}
 
 class Transform;
 class Camera;
@@ -25,6 +37,7 @@ struct UniformBufferObject {
 };
 
 struct PushConstantBufferObject {
+	glm::mat4 model;
 	glm::mat4 view;
 	glm::mat4 proj;
 };
@@ -45,6 +58,14 @@ struct SwapChainSupportDetails
 	VkSurfaceCapabilitiesKHR capabilities;
 	std::vector<VkSurfaceFormatKHR> formats;
 	std::vector<VkPresentModeKHR> presentModes;
+};
+
+struct ThreadData
+{
+	VkCommandPool commandPool;
+	std::vector<VkCommandBuffer> commandBuffers;
+	std::vector<PushConstantBufferObject> pushConstantBlock;
+	std::vector<glm::vec3> modelPositions;
 };
 
 class VulkanInterface
@@ -72,13 +93,15 @@ class VulkanInterface
 	VkDeviceMemory depthImageMemory;
 	VkImageView depthImageView;
 
+	VkCommandBuffer primaryCommandBuffer;
+
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
+	VkFence renderFence;
 
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
 	std::vector<VkFramebuffer> swapchainFramebuffers;
-	std::vector<VkCommandBuffer> commandBuffers;
 
 	void createInstance();
 	void createSurface();
@@ -96,7 +119,10 @@ class VulkanInterface
 	void createDescriptorPool();
 	void createDescriptorSet();
 	void createCommandBuffers();
-	void createSemaphores();
+	void createSemaphoresAndFences();
+
+	void threadedRender(int threadIndex, int objectIndex, VkCommandBufferInheritanceInfo inheritanceInfo);
+	void updateCommandBuffers(VkFramebuffer framebuffer);
 
 	void cleanupSwapchain(bool delSwapchain);
 
@@ -106,6 +132,10 @@ class VulkanInterface
 	Window * window;
 	Model * model;
 	PushConstantBufferObject pushConstant;
+	uint32_t numThread = 4;
+	uint32_t numPerThread = 30;
+	SpecificThreadPool threadPool;
+	std::vector<ThreadData> threadData;
 
 #ifdef VALIDATION_LAYERS
 	bool enableValidationLayers = true;

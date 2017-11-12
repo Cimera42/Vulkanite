@@ -22,9 +22,8 @@ Model::~Model()
 
 void Model::draw(VkCommandBuffer commandBuffer)
 {
-	VkBuffer vertexBuffers[] = {mesh->vertexBuffer};
 	VkDeviceSize offsets[] = {0};
-	vkCmdBindVertexBuffers(commandBuffer, 0,1, vertexBuffers, offsets);
+	vkCmdBindVertexBuffers(commandBuffer, 0,1, &mesh->vertexBuffer, offsets);
 	vkCmdBindIndexBuffer(commandBuffer, mesh->indexBuffer, 0,VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh->indices.size()), 1, 0, 0, 0);
 }

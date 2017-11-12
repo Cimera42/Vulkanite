@@ -4,8 +4,10 @@
 
 #include "logger.h"
 
-#include <utility>
 #include <fstream>
+
+//Global var to make static syncMutex visible
+std::mutex Logger::syncMutex;
 
 Logger::Logger(bool doEndLine, std::string inBetween, bool doTimestamp)
 {
@@ -35,6 +37,8 @@ Logger::~Logger()
 	if(endLine)
 		buffer << std::endl;
 
+	//Prevent collision with multithreading
+	std::lock_guard<std::mutex> syncLockGuard(syncMutex);
 	std::cout << buffer.rdbuf();
 	filePrint();
 }
