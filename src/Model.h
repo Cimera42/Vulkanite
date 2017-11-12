@@ -14,6 +14,11 @@
 
 class VulkanInterface;
 
+struct InstanceData
+{
+	glm::vec3 pos;
+};
+
 class Model
 {
 	void load(std::string filename);
@@ -21,6 +26,11 @@ class Model
 	Mesh * mesh;
 
 	VulkanInterface * vki;
+
+	std::vector<InstanceData> instanceData;
+	VkBuffer instanceBuffer;
+	VkDeviceMemory instanceBufferMemory;
+	void prepareInstances();
 
 public:
 	explicit Model(VulkanInterface* inVulkanInterface);

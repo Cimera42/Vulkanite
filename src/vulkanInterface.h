@@ -133,7 +133,7 @@ class VulkanInterface
 	Model * model;
 	PushConstantBufferObject pushConstant;
 	uint32_t numThread = 4;
-	uint32_t numPerThread = 30;
+	uint32_t numPerThread = 4;
 	SpecificThreadPool threadPool;
 	std::vector<ThreadData> threadData;
 
@@ -188,8 +188,8 @@ bool hasStencilComponent(VkFormat format);
 
 VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilename);
 
-VkVertexInputBindingDescription getBindingDescription();
-std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription();
+std::array<VkVertexInputBindingDescription, 2> getBindingDescription();
+std::array<VkVertexInputAttributeDescription, 4> getAttributeDescription();
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
 
 VkImageView createImageView(VkDevice logicalDevice, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);

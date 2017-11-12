@@ -480,8 +480,8 @@ void VulkanInterface::createGraphicsPipeline()
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexBindingDescriptionCount = 1;
-	vertexInputInfo.pVertexBindingDescriptions = &bindingDescription; // Optional
+	vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescription.size());
+	vertexInputInfo.pVertexBindingDescriptions = bindingDescription.data(); // Optional
 	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescription.size());
 	vertexInputInfo.pVertexAttributeDescriptions = attributeDescription.data(); // Optional
 
@@ -792,8 +792,6 @@ void VulkanInterface::createCommandBuffers()
 		subAllocInfo.commandPool = thread->commandPool;
 		subAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		subAllocInfo.commandBufferCount = numPerThread;
-
-		Logger() << subAllocInfo.commandPool;
 
 		VK_RESULT_CHECK(vkAllocateCommandBuffers(logicalDevice, &subAllocInfo, thread->commandBuffers.data()))
 		Logger() << "Sub command buffers allocated";
@@ -1156,6 +1154,11 @@ bool VulkanInterface::checkValidationLayers()
 		}
 		if(!layerFound)
 		{
+			std::string errorString = "Validation layer ";
+			errorString += layerName;
+			errorString += " could not be found.";
+			Logger() << errorString;
+			throw std::runtime_error(errorString);
 		}
 	}
 
@@ -1332,19 +1335,24 @@ VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilena
 	return shaderModule;
 }
 
-VkVertexInputBindingDescription getBindingDescription()
+std::array<VkVertexInputBindingDescription, 2> getBindingDescription()
 {
-	VkVertexInputBindingDescription bindingDescription = {};
-	bindingDescription.binding = 0;
-	bindingDescription.stride = sizeof(Vertex);
-	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	VkVertexInputBindingDescription vertexBindingDescription = {};
+	vertexBindingDescription.binding = 0;
+	vertexBindingDescription.stride = sizeof(Vertex);
+	vertexBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-	return bindingDescription;
+	VkVertexInputBindingDescription instanceBindingDescription = {};
+	instanceBindingDescription.binding = 1;
+	instanceBindingDescription.stride = sizeof(InstanceData);
+	instanceBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+	return {vertexBindingDescription, instanceBindingDescription};
 }
 
-std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription()
+std::array<VkVertexInputAttributeDescription, 4> getAttributeDescription()
 {
-	std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions = {};
+	std::array<VkVertexInputAttributeDescription, 4> attributeDescriptions = {};
 
 	//Position
 	attributeDescriptions[0].binding = 0;
@@ -1363,6 +1371,12 @@ std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription()
 	attributeDescriptions[2].location = 2;
 	attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
 	attributeDescriptions[2].offset = static_cast<uint32_t>(offsetof(Vertex, normal));
+
+	//Colour
+	attributeDescriptions[3].binding = 1;
+	attributeDescriptions[3].location = 3;
+	attributeDescriptions[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attributeDescriptions[3].offset = static_cast<uint32_t>(offsetof(InstanceData, pos));
 
 	return attributeDescriptions;
 }
