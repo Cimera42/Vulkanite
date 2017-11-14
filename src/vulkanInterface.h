@@ -83,7 +83,11 @@ class VulkanInterface
 	VkRenderPass renderPass;
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
-	VkPipeline graphicsPipeline;
+	VkPipelineCache pipelineCache;
+	struct {
+		VkPipeline standardPipeline;
+		VkPipeline wireframePipeline;
+	} pipelines;
 	VkCommandPool commandPool;
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSet descriptorSet;
@@ -103,6 +107,8 @@ class VulkanInterface
 	std::vector<VkImageView> swapchainImageViews;
 	std::vector<VkFramebuffer> swapchainFramebuffers;
 
+	std::vector<VkShaderModule> shaderModules;
+
 	void createInstance();
 	void createSurface();
 	void pickPhysicalDevice();
@@ -111,6 +117,7 @@ class VulkanInterface
 	void createImageViews();
 	void createRenderPass();
 	void createDescriptorSetLayout();
+	void createPipelineCache();
 	void createGraphicsPipeline();
 	void createFramebuffers();
 	void createCommandPool();
@@ -161,6 +168,7 @@ public:
 	void recreateSwapchain();
 
 	VkDevice logicalDevice;
+	bool wireframe = false;
 
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 					  VkMemoryPropertyFlags propertyFlags, VkBuffer &buffer, VkDeviceMemory &bufferMemory);
@@ -172,6 +180,8 @@ public:
 	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
 
 	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+
+	VkPipelineShaderStageCreateInfo loadShaderModule(const std::string &shaderFilename, VkShaderStageFlagBits stage);
 };
 
 bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
@@ -185,8 +195,6 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, Window
 VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 VkFormat findDepthFormat(VkPhysicalDevice device);
 bool hasStencilComponent(VkFormat format);
-
-VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilename);
 
 std::array<VkVertexInputBindingDescription, 2> getBindingDescription();
 std::array<VkVertexInputAttributeDescription, 4> getAttributeDescription();

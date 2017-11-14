@@ -82,11 +82,19 @@ VulkanInterface::~VulkanInterface()
 	Logger() << "Uniform buffer memory freed";
 
 	delete model;
+	for(auto& shaderModule : shaderModules)
+	{
+		vkDestroyShaderModule(logicalDevice, shaderModule, nullptr);
+	}
+	Logger() << "Shader modules destroyed";
 
 	vkDestroySemaphore(logicalDevice, renderFinishedSemaphore, nullptr);
 	Logger() << "Render semaphore destroyed";
 	vkDestroySemaphore(logicalDevice, imageAvailableSemaphore, nullptr);
 	Logger() << "Image semaphore destroyed";
+
+	vkDestroyPipelineCache(logicalDevice, pipelineCache, nullptr);
+	Logger() << "Pipeline cache destroyed";
 
 	vkDestroyCommandPool(logicalDevice, commandPool, nullptr);
 	Logger() << "Command pool destroyed";
@@ -111,8 +119,10 @@ void VulkanInterface::cleanupSwapchain(bool delSwapchain)
 
 	vkFreeCommandBuffers(logicalDevice, commandPool, 1, &primaryCommandBuffer);
 
-	vkDestroyPipeline(logicalDevice, graphicsPipeline, nullptr);
-	Logger() << "Graphics pipeline destroyed";
+	vkDestroyPipeline(logicalDevice, pipelines.standardPipeline, nullptr);
+	Logger() << "Standard pipeline destroyed";
+	vkDestroyPipeline(logicalDevice, pipelines.wireframePipeline, nullptr);
+	Logger() << "Wireframe pipeline destroyed";
 	vkDestroyPipelineLayout(logicalDevice, pipelineLayout, nullptr);
 	Logger() << "Pipeline layout destroyed";
 	vkDestroyRenderPass(logicalDevice, renderPass, nullptr);
@@ -144,6 +154,7 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createImageViews();
 	createRenderPass();
 	createDescriptorSetLayout();
+	createPipelineCache();
 	createGraphicsPipeline();
 	createCommandPool();
 	createDepthResources();
@@ -456,25 +467,15 @@ void VulkanInterface::createDescriptorSetLayout()
 	Logger() << "Descriptor set layout created";
 }
 
+void VulkanInterface::createPipelineCache()
+{
+	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
+	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+	VK_RESULT_CHECK(vkCreatePipelineCache(logicalDevice, &pipelineCacheCreateInfo, nullptr, &pipelineCache));
+}
+
 void VulkanInterface::createGraphicsPipeline()
 {
-	VkShaderModule vertShaderModule = loadShaderModule(logicalDevice, "shaders/vert.spv");
-	VkShaderModule fragShaderModule = loadShaderModule(logicalDevice, "shaders/frag.spv");
-
-	VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
-	vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertShaderStageInfo.module = vertShaderModule;
-	vertShaderStageInfo.pName = "main";
-
-	VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
-	fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragShaderStageInfo.module = fragShaderModule;
-	fragShaderStageInfo.pName = "main";
-
-	VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-
 	auto bindingDescription = getBindingDescription();
 	auto attributeDescription = getAttributeDescription();
 
@@ -600,10 +601,15 @@ void VulkanInterface::createGraphicsPipeline()
 	VK_RESULT_CHECK(vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout))
 	Logger() << "Pipeline layout created";
 
+	std::vector<VkPipelineShaderStageCreateInfo> shaderStages = {
+			loadShaderModule("shaders/standard.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			loadShaderModule("shaders/standard.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
+	};
+
 	VkGraphicsPipelineCreateInfo pipelineInfo = {};
 	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	pipelineInfo.stageCount = 2;
-	pipelineInfo.pStages = shaderStages;
+	pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineInfo.pStages = shaderStages.data();
 	pipelineInfo.pVertexInputState = &vertexInputInfo;
 	pipelineInfo.pInputAssemblyState = &inputAssembly;
 	pipelineInfo.pViewportState = &viewportState;
@@ -615,16 +621,23 @@ void VulkanInterface::createGraphicsPipeline()
 	pipelineInfo.layout = pipelineLayout;
 	pipelineInfo.renderPass = renderPass;
 	pipelineInfo.subpass = 0;
-	//Can create new pipeline based off an old one
-	//requires flag in .flags
-	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
-	pipelineInfo.basePipelineIndex = -1; // Optional
+	pipelineInfo.flags = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
+	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+	pipelineInfo.basePipelineIndex = -1;
 
-	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline))
-	Logger() << "Graphics pipeline created";
+	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.standardPipeline))
+	Logger() << "Standard pipeline created";
 
-	vkDestroyShaderModule(logicalDevice, vertShaderModule, nullptr);
-	vkDestroyShaderModule(logicalDevice, fragShaderModule, nullptr);
+	shaderStages = {
+			loadShaderModule("shaders/wireframe.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			loadShaderModule("shaders/wireframe.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
+	};
+	pipelineInfo.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+	pipelineInfo.basePipelineHandle = pipelines.standardPipeline;
+	pipelineInfo.basePipelineIndex = -1;
+	rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
+	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.wireframePipeline))
+	Logger() << "Wireframe pipeline created";
 }
 
 void VulkanInterface::createFramebuffers()
@@ -831,7 +844,10 @@ void VulkanInterface::threadedRender(int threadIndex, int objectIndex, VkCommand
 	scissor.offset = {0,0};
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+	if(!wireframe)
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.standardPipeline);
+	else
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.wireframePipeline);
 
 	thread->pushConstantBlock[objectIndex].view = pushConstant.view;
 	thread->pushConstantBlock[objectIndex].proj = pushConstant.proj;
@@ -947,14 +963,18 @@ void VulkanInterface::updateCommandBuffers(VkFramebuffer framebuffer)
 void VulkanInterface::draw()
 {
 	uint32_t imageIndex;
-	VkResult result = vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+	VkResult result;
+	do
 	{
-		recreateSwapchain();
-		return;
+		result = vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(),
+		                                        imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+		{
+			recreateSwapchain();
+		}
+		else VK_RESULT_CHECK(result)
 	}
-	else
-		VK_RESULT_CHECK(result)
+	while(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR);
 
 	updateCommandBuffers(swapchainFramebuffers[imageIndex]);
 
@@ -1311,7 +1331,8 @@ bool hasStencilComponent(VkFormat format)
 	return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilename)
+VkPipelineShaderStageCreateInfo VulkanInterface::loadShaderModule(const std::string &shaderFilename,
+                                                                  VkShaderStageFlagBits stage)
 {
 	std::ifstream shaderStream(shaderFilename.c_str(), std::ios::binary);
 	std::string shaderCode((std::istreambuf_iterator<char>(shaderStream)),
@@ -1323,7 +1344,7 @@ VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilena
 	shaderCreationInfo.pCode = reinterpret_cast<const uint32_t *>(shaderCode.c_str());
 
 	VkShaderModule shaderModule;
-	VkResult res = vkCreateShaderModule(device, &shaderCreationInfo, nullptr, &shaderModule);
+	VkResult res = vkCreateShaderModule(logicalDevice, &shaderCreationInfo, nullptr, &shaderModule);
 	if(res != VK_SUCCESS)
 	{
 		Logger() << "Shader module creation failed [" << shaderFilename << "]";
@@ -1332,7 +1353,15 @@ VkShaderModule loadShaderModule(VkDevice device, const std::string &shaderFilena
 	}
 	Logger() << "Shader module created [" << shaderFilename << "]";
 
-	return shaderModule;
+	VkPipelineShaderStageCreateInfo shaderStageInfo = {};
+	shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStageInfo.stage = stage;
+	shaderStageInfo.module = shaderModule;
+	shaderStageInfo.pName = "main";
+
+	shaderModules.emplace_back(shaderModule);
+
+	return shaderStageInfo;
 }
 
 std::array<VkVertexInputBindingDescription, 2> getBindingDescription()

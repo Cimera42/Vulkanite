@@ -119,6 +119,9 @@ int main()
 			if(keyboardInput->isKeyPressed(340))
 				displaced -= glm::vec3(0, 1, 0) * ((float)dtf) * 5.0f;
 
+			if(keyboardInput->isKeyPressed('T'))
+				vulkanInterface->wireframe = !vulkanInterface->wireframe;
+
 			cameraTransform->position = displaced;
 
 			camera->lookAt(cameraTransform->position, cameraTransform->position + cameraTransform->forward, cameraTransform->up);
