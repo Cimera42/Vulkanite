@@ -15,6 +15,7 @@
 #include "Texture.h"
 #include "Model.h"
 #include "SpecificThreadPool.h"
+#include "ParticleSystem.h"
 
 #define VALIDATION_LAYERS
 
@@ -31,6 +32,7 @@
 
 class Transform;
 class Camera;
+class ParticleSystem;
 
 struct UniformBufferObject {
 	glm::mat4 model;
@@ -38,6 +40,11 @@ struct UniformBufferObject {
 
 struct PushConstantBufferObject {
 	glm::mat4 model;
+	glm::mat4 view;
+	glm::mat4 proj;
+};
+
+struct ParticlePushConstantBufferObject {
 	glm::mat4 view;
 	glm::mat4 proj;
 };
@@ -82,15 +89,19 @@ class VulkanInterface
 	VkExtent2D swapchainExtent;
 	VkRenderPass renderPass;
 	VkDescriptorSetLayout descriptorSetLayout;
+	VkDescriptorSetLayout particleDescriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
+	VkPipelineLayout particlePipelineLayout;
 	VkPipelineCache pipelineCache;
 	struct {
 		VkPipeline standardPipeline;
 		VkPipeline wireframePipeline;
+		VkPipeline particlePipeline;
 	} pipelines;
 	VkCommandPool commandPool;
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSet descriptorSet;
+	VkDescriptorSet particleDescriptorSet;
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
 	VkImage depthImage;
@@ -98,6 +109,7 @@ class VulkanInterface
 	VkImageView depthImageView;
 
 	VkCommandBuffer primaryCommandBuffer;
+	VkCommandBuffer particleCommandBuffer;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
@@ -117,6 +129,7 @@ class VulkanInterface
 	void createImageViews();
 	void createRenderPass();
 	void createDescriptorSetLayout();
+	void createParticleDescriptorSetLayout();
 	void createPipelineCache();
 	void createGraphicsPipeline();
 	void createFramebuffers();
@@ -129,6 +142,7 @@ class VulkanInterface
 	void createSemaphoresAndFences();
 
 	void threadedRender(int threadIndex, int objectIndex, VkCommandBufferInheritanceInfo inheritanceInfo);
+	void updateParticleCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
 	void updateCommandBuffers(VkFramebuffer framebuffer);
 
 	void cleanupSwapchain(bool delSwapchain);
@@ -138,11 +152,12 @@ class VulkanInterface
 
 	Window * window;
 	Model * model;
-	PushConstantBufferObject pushConstant;
-	uint32_t numThread = 4;
-	uint32_t numPerThread = 4;
+	ParticlePushConstantBufferObject pushConstant;
+	uint32_t numThread = 2;
+	uint32_t numPerThread = 3;
 	SpecificThreadPool threadPool;
 	std::vector<ThreadData> threadData;
+	ParticleSystem* particles;
 
 #ifdef VALIDATION_LAYERS
 	bool enableValidationLayers = true;
@@ -196,8 +211,10 @@ VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat
 VkFormat findDepthFormat(VkPhysicalDevice device);
 bool hasStencilComponent(VkFormat format);
 
-std::array<VkVertexInputBindingDescription, 2> getBindingDescription();
-std::array<VkVertexInputAttributeDescription, 4> getAttributeDescription();
+std::array<VkVertexInputBindingDescription, 1> getBindingDescription();
+std::array<VkVertexInputBindingDescription, 2> getParticleBindingDescription();
+std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription();
+std::array<VkVertexInputAttributeDescription, 7> getParticleAttributeDescription();
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
 
 VkImageView createImageView(VkDevice logicalDevice, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);

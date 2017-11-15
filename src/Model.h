@@ -27,15 +27,11 @@ class Model
 
 	VulkanInterface * vki;
 
-	std::vector<InstanceData> instanceData;
-	VkBuffer instanceBuffer;
-	VkDeviceMemory instanceBufferMemory;
-	void prepareInstances();
-
 public:
-	explicit Model(VulkanInterface* inVulkanInterface);
+	explicit Model(VulkanInterface *inVulkanInterface, std::string filename);
 	~Model();
 	void draw(VkCommandBuffer commandBuffer);
+	void draw(VkCommandBuffer commandBuffer, uint32_t instanceCount);
 
 	Texture * texture;
 };

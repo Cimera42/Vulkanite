@@ -8,29 +8,30 @@
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 
-Model::Model(VulkanInterface* inVulkanInterface):
+Model::Model(VulkanInterface *inVulkanInterface, std::string filename) :
 	vki(inVulkanInterface)
 {
-	load("models/Mushroom/mushroom.fbx");
+	load(filename);
 }
 
 Model::~Model()
 {
-	vkDestroyBuffer(vki->logicalDevice, instanceBuffer, nullptr);
-	vkFreeMemory(vki->logicalDevice, instanceBufferMemory, nullptr);
-
 	delete mesh;
 	delete texture;
 }
 
 void Model::draw(VkCommandBuffer commandBuffer)
 {
+	draw(commandBuffer, 1);
+}
+
+void Model::draw(VkCommandBuffer commandBuffer, uint32_t instanceCount)
+{
 	VkDeviceSize offsets[] = {0};
 	vkCmdBindVertexBuffers(commandBuffer, 0,1, &mesh->vertexBuffer, offsets);
-	vkCmdBindVertexBuffers(commandBuffer, 1,1, &instanceBuffer, offsets);
 	vkCmdBindIndexBuffer(commandBuffer, mesh->indexBuffer, 0,VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh->indices.size()),
-	                 static_cast<uint32_t>(instanceData.size()), 0, 0, 0);
+	                 instanceCount, 0, 0, 0);
 }
 
 void Model::load(std::string filename)
@@ -141,40 +142,4 @@ void Model::load(std::string filename)
 			mesh->load(assimpMesh);
 		}
 	}
-
-	prepareInstances();
-}
-
-void Model::prepareInstances()
-{
-	instanceData = {
-			{glm::vec3(0,0,0)},
-			{glm::vec3(0,0,2)},
-			{glm::vec3(0,0,4)},
-			{glm::vec3(0,0,6)},
-			{glm::vec3(0,0,8)},
-		    {glm::vec3(0,0,10)}
-	};
-
-	VkBuffer stagingBuffer;
-	VkDeviceMemory stagingBufferMemory;
-
-	VkDeviceSize bufferSize = sizeof(instanceData[0]) * instanceData.size();
-	vki->createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-	                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-	                  stagingBuffer, stagingBufferMemory);
-
-	void* data;
-	vkMapMemory(vki->logicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data);
-	memcpy(data, instanceData.data(), bufferSize);
-	vkUnmapMemory(vki->logicalDevice, stagingBufferMemory);
-
-	vki->createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-	                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-	                  instanceBuffer, instanceBufferMemory);
-
-	vki->copyBuffer(stagingBuffer, instanceBuffer, bufferSize);
-
-	vkDestroyBuffer(vki->logicalDevice, stagingBuffer, nullptr);
-	vkFreeMemory(vki->logicalDevice, stagingBufferMemory, nullptr);
 }
