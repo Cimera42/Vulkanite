@@ -120,6 +120,7 @@ class VulkanInterface
 	VkFramebuffer offscreenFramebuffer;
 	VkCommandBuffer offscreenCommandBuffer;
 	VkDescriptorSet offscreenDescriptorSet;
+	VkPipeline offscreenPipeline;
 
 	VkCommandBuffer primaryCommandBuffer;
 	VkCommandBuffer particleCommandBuffer;

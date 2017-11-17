@@ -63,6 +63,7 @@ VulkanInterface::~VulkanInterface()
 	vkDestroySampler(logicalDevice, offscreenSampler, nullptr);
 	vkDestroyRenderPass(logicalDevice, offscreenRenderPass, nullptr);
 	vkDestroyFramebuffer(logicalDevice, offscreenFramebuffer, nullptr);
+	vkDestroyPipeline(logicalDevice, offscreenPipeline, nullptr);
 
 	threadPool.destroy();
 	for(auto &i : threadData)
@@ -546,14 +547,16 @@ void VulkanInterface::updateOffscreenCommandBuffer()
 	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
 	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-	vkBeginCommandBuffer(offscreenCommandBuffer, &commandBufferBeginInfo );
-	vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
+	vkBeginCommandBuffer(offscreenCommandBuffer, &commandBufferBeginInfo);
+	vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-	vkCmdBindPipeline(offscreenCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.standardPipeline);
+	vkCmdBindPipeline(offscreenCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreenPipeline);
 	vkCmdBindDescriptorSets(offscreenCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
 	                        &descriptorSet, 0, nullptr);
 
-	vkCmdPushConstants(offscreenCommandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, 1, &pushConstant);
+	vkCmdPushConstants(offscreenCommandBuffer, pipelineLayout,
+	                   VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstantBufferObject),
+	                   &pushConstant);
 
 	model->draw(offscreenCommandBuffer);
 
@@ -895,6 +898,12 @@ void VulkanInterface::createGraphicsPipeline()
 
 	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.standardPipeline))
 	Logger() << "Standard pipeline created";
+
+	pipelineInfo.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+	pipelineInfo.basePipelineHandle = pipelines.standardPipeline;
+	pipelineInfo.basePipelineIndex = -1;
+	pipelineInfo.renderPass = offscreenRenderPass;
+	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &offscreenPipeline))
 
 	shaderStages = {
 			loadShaderModule("shaders/wireframe.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
@@ -1329,12 +1338,12 @@ void VulkanInterface::draw()
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = &offscreenRenderedSemaphore;
 
-	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, renderFence))
+	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, nullptr));
 
 	submitInfo.pWaitSemaphores = &offscreenRenderedSemaphore;
 	submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
 	submitInfo.pCommandBuffers = &primaryCommandBuffer;
-	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, renderFence))
+	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, renderFence));
 
 	VkResult fenceRes;
 	do
