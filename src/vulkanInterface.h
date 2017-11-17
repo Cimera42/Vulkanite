@@ -108,6 +108,19 @@ class VulkanInterface
 	VkDeviceMemory depthImageMemory;
 	VkImageView depthImageView;
 
+	VkRenderPass offscreenRenderPass;
+	VkSampler offscreenSampler;
+	VkImage offscreenColorImage;
+	VkDeviceMemory offscreenColorImageMemory;
+	VkImageView offscreenColorImageView;
+	VkImage offscreenDepthImage;
+	VkDeviceMemory offscreenDepthImageMemory;
+	VkImageView offscreenDepthImageView;
+	VkSemaphore offscreenRenderedSemaphore;
+	VkFramebuffer offscreenFramebuffer;
+	VkCommandBuffer offscreenCommandBuffer;
+	VkDescriptorSet offscreenDescriptorSet;
+
 	VkCommandBuffer primaryCommandBuffer;
 	VkCommandBuffer particleCommandBuffer;
 
@@ -140,6 +153,14 @@ class VulkanInterface
 	void createDescriptorSet();
 	void createCommandBuffers();
 	void createSemaphoresAndFences();
+
+	void createOffscreenRenderPass();
+	void createOffscreenImages();
+	void createOffscreenSemaphore();
+	void createOffscreenFramebuffer();
+	void createOffscreenCommandBuffer();
+	void updateOffscreenCommandBuffer();
+	void createOffscreenDescriptorSet();
 
 	void threadedRender(int threadIndex, int objectIndex, VkCommandBufferInheritanceInfo inheritanceInfo);
 	void updateParticleCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
