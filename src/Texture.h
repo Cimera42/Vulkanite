@@ -23,8 +23,8 @@ class Texture
 
 	void loadImage();
 
+	void createImage(uint32_t width, uint32_t height);
 	void createTextureImageView();
-
 	void createTextureSampler();
 
 public:

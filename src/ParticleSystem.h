@@ -18,12 +18,17 @@ struct Particle
 	glm::vec3 velocity;
 };
 
+struct ParticleInstanceData
+{
+	glm::mat4 transform;
+};
+
 class ParticleSystem
 {
 	VulkanInterface * vki;
 	uint32_t maxParticles;
 	std::vector<Particle*> particles;
-	std::vector<glm::mat4> particleMatrices;
+	std::vector<ParticleInstanceData> particleInstanceData;
 
 	VkDeviceSize instanceBufferSize;
 	VkBuffer instanceBuffer;

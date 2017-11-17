@@ -8,7 +8,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/quaternion.hpp>
-#include <utility>
 
 ParticleSystem::ParticleSystem(VulkanInterface *inVulkanInterface, std::string particleModelFilename) :
 	vki(inVulkanInterface)
@@ -53,10 +52,10 @@ void ParticleSystem::initParticles()
 
 void ParticleSystem::update()
 {
-	particleMatrices.clear();
-	for(auto && particle : particles)
+	particleInstanceData.clear();
+	for (auto &&particle : particles)
 	{
-		if(particle->alive)
+		if (particle->alive)
 		{
 			threadPool.addJob(std::bind(particleUpdate, this, particle));
 		}
@@ -81,10 +80,11 @@ void ParticleSystem::particleUpdate(Particle *particle)
 	if(particle->position.z < 0) {particle->position.z = 0; particle->velocity.z *= -1;}
 
 	glm::mat4 particleMatrix = glm::translate(particle->position);
-	particleMatrix *= glm::toMat4(particle->rotation);
+	//particleMatrix *= glm::toMat4(particle->rotation);
 
+	ParticleInstanceData d = {particleMatrix};
 	std::lock_guard<std::mutex> lock(matricesMutex);
-	particleMatrices.emplace_back(particleMatrix);
+	particleInstanceData.emplace_back(d);
 }
 
 void ParticleSystem::loadModel(std::string filename)
@@ -94,7 +94,7 @@ void ParticleSystem::loadModel(std::string filename)
 
 void ParticleSystem::prepareInstanceBuffer()
 {
-	instanceBufferSize = sizeof(glm::mat4) * maxParticles;
+	instanceBufferSize = sizeof(ParticleInstanceData) * maxParticles;
 	vki->createBuffer(instanceBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 	                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 	                  instanceBuffer, instanceBufferMemory);
@@ -104,7 +104,7 @@ void ParticleSystem::copyMatrices()
 {
 	void* data;
 	vkMapMemory(vki->logicalDevice, instanceBufferMemory, 0, instanceBufferSize, 0, &data);
-	memcpy(data, particleMatrices.data(), instanceBufferSize);
+	memcpy(data, particleInstanceData.data(), instanceBufferSize);
 	vkUnmapMemory(vki->logicalDevice, instanceBufferMemory);
 }
 
@@ -114,5 +114,5 @@ void ParticleSystem::draw(VkCommandBuffer commandBuffer)
 
 	VkDeviceSize offsets[] = {0};
 	vkCmdBindVertexBuffers(commandBuffer, 1,1, &instanceBuffer, offsets);
-	particleModel->draw(commandBuffer, static_cast<uint32_t>(particleMatrices.size()));
+	particleModel->draw(commandBuffer, static_cast<uint32_t>(particleInstanceData.size()));
 }
