@@ -554,9 +554,12 @@ void VulkanInterface::updateOffscreenCommandBuffer()
 	vkCmdBindDescriptorSets(offscreenCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
 	                        &descriptorSet, 0, nullptr);
 
+	offscreenPushConstant.view = pushConstant.view;
+	offscreenPushConstant.proj = pushConstant.proj;
+	offscreenPushConstant.model = glm::mat4(1.0);
 	vkCmdPushConstants(offscreenCommandBuffer, pipelineLayout,
 	                   VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstantBufferObject),
-	                   &pushConstant);
+	                   &offscreenPushConstant);
 
 	model->draw(offscreenCommandBuffer);
 
@@ -912,6 +915,7 @@ void VulkanInterface::createGraphicsPipeline()
 	pipelineInfo.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
 	pipelineInfo.basePipelineHandle = pipelines.standardPipeline;
 	pipelineInfo.basePipelineIndex = -1;
+	pipelineInfo.renderPass = renderPass;
 	rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
 	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.wireframePipeline))
 	Logger() << "Wireframe pipeline created";
