@@ -15,5 +15,3 @@ for /f %%f in ('dir /b') do (
         @echo off
     )
 )
-
-rem %VK_SDK_PATH%\Bin\glslangValidator -V standard.vert -o standard.vert.spv
