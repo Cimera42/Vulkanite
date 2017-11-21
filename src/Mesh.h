@@ -38,6 +38,10 @@ public:
 	explicit Mesh(VulkanInterface* inVulkanInterface);
 	~Mesh();
 	void load(aiMesh* assimpMesh);
+	void load(std::vector<glm::vec3> inVertices,
+	          std::vector<glm::vec2> inUVs,
+	          std::vector<glm::vec3> inNormals,
+	          std::vector<uint32_t> inIndices);
 
 	VkBuffer vertexBuffer;
 	VkBuffer indexBuffer;

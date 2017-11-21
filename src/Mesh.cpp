@@ -3,6 +3,8 @@
 //
 
 #include "Mesh.h"
+
+#include <utility>
 #include "vulkanInterface.h"
 #include "logger.h"
 
@@ -55,6 +57,33 @@ void Mesh::load(aiMesh* assimpMesh)
 		collatedVertex.position = glmVert;
 		collatedVertex.uv = glmUv;
 		collatedVertex.normal = glmNormal;
+		//collatedVertex.materialIndex = assimpMesh->mMaterialIndex;
+		collatedVertices.push_back(collatedVertex);
+	}
+
+	createVertexBuffer();
+	createIndexBuffer();
+}
+
+void Mesh::load(std::vector<glm::vec3> inVertices,
+                std::vector<glm::vec2> inUVs,
+                std::vector<glm::vec3> inNormals,
+                std::vector<uint32_t> inIndices)
+{
+	vertices = std::move(inVertices);
+	uvs = std::move(inUVs);
+	normals = std::move(inNormals);
+	indices = std::move(inIndices);
+
+	size_t size = vertices.size();
+	for(auto j = 0; j < size; j++)
+	{
+		//materialIndices.push_back(assimpMesh->mMaterialIndex);
+
+		Vertex collatedVertex;
+		collatedVertex.position = vertices[j];
+		collatedVertex.uv = uvs[j];
+		collatedVertex.normal = normals[j];
 		//collatedVertex.materialIndex = assimpMesh->mMaterialIndex;
 		collatedVertices.push_back(collatedVertex);
 	}
