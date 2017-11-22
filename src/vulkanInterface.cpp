@@ -76,8 +76,6 @@ VulkanInterface::~VulkanInterface()
 		vkDestroyCommandPool(logicalDevice, i.commandPool, nullptr);
 	}
 
-	vkDestroyFence(logicalDevice, renderFence, nullptr);
-
 	vkDestroyImageView(logicalDevice, depthImageView, nullptr);
 	Logger() << "Depth image view destroyed";
 	vkDestroyImage(logicalDevice, depthImage, nullptr);
@@ -1235,10 +1233,6 @@ void VulkanInterface::createSemaphoresAndFences()
 
 	VK_RESULT_CHECK(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphore))
 	Logger() << "Render semaphores created";
-
-	VkFenceCreateInfo fenceCreateInfo = {};
-	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	VK_RESULT_CHECK(vkCreateFence(logicalDevice, &fenceCreateInfo, nullptr, &renderFence))
 }
 
 void VulkanInterface::update(Camera *camera)
@@ -1393,16 +1387,7 @@ void VulkanInterface::draw()
 	submitInfo.pWaitSemaphores = &offscreenRenderedSemaphore;
 	submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
 	submitInfo.pCommandBuffers = &screenCommandBuffer;
-	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, renderFence));
-
-	VkResult fenceRes;
-	do
-	{
-		fenceRes = vkWaitForFences(logicalDevice, 1, &renderFence, VK_TRUE, 100000000);
-	}
-	while(fenceRes == VK_TIMEOUT);
-	VK_RESULT_CHECK(fenceRes)
-	vkResetFences(logicalDevice, 1, &renderFence);
+	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, nullptr));
 
 	//Submit frame to swapchain
 	VkPresentInfoKHR presentInfo = {};
