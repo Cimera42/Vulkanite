@@ -113,7 +113,7 @@ void Model::load(std::string filename)
 			std::string baseFolder = std::string(filename);
 			baseFolder = baseFolder.substr(0, baseFolder.find_last_of("/"));
 			//Load image
-			texture = new Texture(vki, std::string(baseFolder + "/" + texPath.C_Str()));
+			texture = new Texture(vki, {std::string(baseFolder + "/" + texPath.C_Str())});
 		}
 	}
 

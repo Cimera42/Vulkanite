@@ -14,14 +14,14 @@ float zSphere(vec2 point)
 }
 void main()
 {
-    vec2 dir = fragUV - vec2(0.5);
-    float dist = length(dir);
-    if(dist < 0.25)
-    {
-        float z = zSphere(fragUV);
-        vec3 sphereDir = vec3(fragUV,z) - vec3(0.5,0.5,0);
-        outColour = texture(texSampler, fragUV - sphereDir.xy*(sphereDir.z*2));
-    }
-    else
+//    vec2 dir = fragUV - vec2(0.5);
+//    float dist = length(dir);
+//    if(dist < 0.25)
+//    {
+//        float z = zSphere(fragUV);
+//        vec3 sphereDir = vec3(fragUV,z) - vec3(0.5,0.5,0);
+//        outColour = texture(texSampler, fragUV - sphereDir.xy*(sphereDir.z*2));
+//    }
+//    else
         outColour = texture(texSampler, fragUV);
 }
