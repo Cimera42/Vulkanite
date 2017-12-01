@@ -8,31 +8,30 @@
 #include <vulkan/vulkan.h>
 #include <stb_image.h>
 #include <string>
+#include <vector>
+#include "ImageAttachment.h"
 
 class VulkanInterface;
 
 class Texture
 {
 	VulkanInterface* vki;
-	VkImage textureImage;
-	VkDeviceMemory textureImageMemory;
 
-	std::string filename;
-	stbi_uc* imageData;
-	int width, height, components;
+	std::vector<std::string> filenames;
 
 	void loadImage();
 
-	void createImage(uint32_t width, uint32_t height);
-	void createTextureImageView();
+	void createImage(uint32_t width, uint32_t height, uint32_t layers);
+	void createTextureImageView(uint32_t layers);
 	void createTextureSampler();
 
 public:
-	explicit Texture(VulkanInterface* inVulkanInterface, const std::string &inFilename);
+	explicit Texture(VulkanInterface* inVulkanInterface, std::vector<std::string> inFilenames);
 	~Texture();
 
-	VkImageView textureImageView;
 	VkSampler textureSampler;
+
+	ImageAttachment texture;
 };
 
 #endif //VULKANITE_TEXTURE_H

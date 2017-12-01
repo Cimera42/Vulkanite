@@ -6,12 +6,12 @@
 #include "logger.h"
 #include "vulkanInterface.h"
 
-Texture::Texture(VulkanInterface *inVulkanInterface, const std::string &inFilename):
+Texture::Texture(VulkanInterface *inVulkanInterface, std::vector<std::string> inFilenames):
 	vki(inVulkanInterface),
-	filename(inFilename)
+	filenames(inFilenames)
 {
 	loadImage();
-	createTextureImageView();
+	createTextureImageView(filenames.size());
 	createTextureSampler();
 }
 
@@ -19,26 +19,32 @@ Texture::~Texture()
 {
 	vkDestroySampler(vki->logicalDevice, textureSampler, nullptr);
 	Logger() << "Texture sampler destroyed";
-	vkDestroyImageView(vki->logicalDevice, textureImageView, nullptr);
-	Logger() << "Texture image view destroyed";
-	vkDestroyImage(vki->logicalDevice, textureImage, nullptr);
-	Logger() << "Texture image destroyed";
-	vkFreeMemory(vki->logicalDevice, textureImageMemory, nullptr);
-	Logger() << "Texture image memory freed";
+	texture.destroy(vki->logicalDevice);
 }
 
 void Texture::loadImage()
 {
-	imageData = stbi_load(filename.c_str(), &width, &height, &components, STBI_rgb_alpha);
-
-	if(!imageData)
+	auto layerCount = static_cast<uint32_t>(filenames.size());
+	std::vector<stbi_uc*> imageData(layerCount);
+	std::vector<int> widths(layerCount);
+	std::vector<int> heights(layerCount);
+	std::vector<int> comps(layerCount);
+	VkDeviceSize textureSize = 0;
+	int maxWidth = 0, maxHeight = 0;
+	for(int i = 0; i < layerCount; ++i)
 	{
-		Logger() << "Texture image failed to load";
-		throw std::runtime_error("Failed to load texture image");
-	}
-	Logger() << "Texture image loaded";
+		imageData[i] = stbi_load(filenames[i].c_str(), &widths[i], &heights[i], &comps[i], STBI_rgb_alpha);
 
-	auto textureSize = static_cast<VkDeviceSize>(width * height * 4);
+		if(!imageData[i])
+		{
+			Logger() << "Texture image failed to load";
+			throw std::runtime_error("Failed to load texture image");
+		}
+
+		textureSize += widths[i] * heights[i] * 4;
+		if(widths[i] > maxWidth) maxWidth = widths[i];
+		if(heights[i] > maxHeight) maxHeight = heights[i];
+	}
 
 	VkBuffer stagingBuffer;
 	VkDeviceMemory stagingBufferMemory;
@@ -46,36 +52,81 @@ void Texture::loadImage()
 				 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 				 stagingBuffer, stagingBufferMemory);
 
+	void* allImageData = malloc(textureSize);
+	size_t memCopyOffset = 0;
+	for(int i = 0; i < imageData.size(); ++i)
+	{
+		memcpy(reinterpret_cast<char*>(allImageData)+memCopyOffset, imageData[i], static_cast<size_t>(widths[i] * heights[i] * 4));
+		memCopyOffset += widths[i] * heights[i] * 4;
+	}
 	void* data;
 	vkMapMemory(vki->logicalDevice, stagingBufferMemory, 0, textureSize, 0, &data);
-	memcpy(data, imageData, static_cast<size_t>(textureSize));
+	memcpy(data, allImageData, static_cast<size_t>(textureSize));
 	vkUnmapMemory(vki->logicalDevice, stagingBufferMemory);
 
-	stbi_image_free(imageData);
+	free(allImageData);
 
-	createImage(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+	for(auto &&item : imageData)
+	{
+		stbi_image_free(item);
+	}
 
-	vki->transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
-							   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	vki->copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
-	vki->transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-							   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	std::vector<VkBufferImageCopy> bufferCopyRegions;
+	bufferCopyRegions.reserve(layerCount);
+	size_t offset = 0;
+	for(uint32_t i = 0; i < layerCount; ++i)
+	{
+		VkBufferImageCopy region = {};
+		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0;
+		region.imageSubresource.baseArrayLayer = i;
+		region.imageSubresource.layerCount = 1;
+
+		region.bufferOffset = offset;
+		region.imageExtent = {
+				static_cast<uint32_t>(widths[i]),
+				static_cast<uint32_t>(heights[i]),
+				1
+		};
+		bufferCopyRegions.emplace_back(region);
+
+		offset += widths[i] * heights[i] * 4;
+	}
+
+	createImage(static_cast<uint32_t>(maxWidth), static_cast<uint32_t>(maxHeight), layerCount);
+
+	vki->transitionImageLayout(texture.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
+							   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, layerCount);
+
+	VkCommandBuffer copyCommandBuffer = vki->beginSingleTimeCommands();
+
+	vkCmdCopyBufferToImage(copyCommandBuffer, stagingBuffer, texture.image,
+	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(bufferCopyRegions.size()),
+	                       bufferCopyRegions.data());
+
+	vki->endSingleTimeCommands(copyCommandBuffer);
+
+	vki->transitionImageLayout(texture.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+							   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, layerCount);
 
 	vkDestroyBuffer(vki->logicalDevice, stagingBuffer, nullptr);
 	vkFreeMemory(vki->logicalDevice, stagingBufferMemory, nullptr);
 }
 
-void Texture::createImage(uint32_t width, uint32_t height)
+void Texture::createImage(uint32_t width, uint32_t height, uint32_t layers)
 {
-	vki->createImage(width, height,
+	vki->createImage(width, height, layers,
 	                 VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
 	                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-	                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
+	                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.imageMemory);
 }
 
-void Texture::createTextureImageView()
+void Texture::createTextureImageView(uint32_t layers)
 {
-	textureImageView = createImageView(vki->logicalDevice, textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+	VkImageViewType viewType = layers == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	texture.imageView = createImageView(vki->logicalDevice, viewType, texture.image,
+	                                    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT,
+	                                    layers);
 }
 
 void Texture::createTextureSampler()
@@ -84,9 +135,9 @@ void Texture::createTextureSampler()
 	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	samplerInfo.magFilter = VK_FILTER_LINEAR;
 	samplerInfo.minFilter = VK_FILTER_LINEAR;
-	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerInfo.anisotropyEnable = VK_TRUE;
 	samplerInfo.maxAnisotropy = 16;
 	samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;

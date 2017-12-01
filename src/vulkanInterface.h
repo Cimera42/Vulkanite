@@ -16,6 +16,7 @@
 #include "Model.h"
 #include "SpecificThreadPool.h"
 #include "ParticleSystem.h"
+#include "ImageAttachment.h"
 
 #define VALIDATION_LAYERS
 
@@ -33,6 +34,7 @@
 class Transform;
 class Camera;
 class ParticleSystem;
+class Terrain;
 
 struct UniformBufferObject {
 	glm::mat4 model;
@@ -88,37 +90,33 @@ class VulkanInterface
 	VkSurfaceFormatKHR surfaceFormat;
 	VkExtent2D swapchainExtent;
 	VkRenderPass renderPass;
-	VkDescriptorSetLayout descriptorSetLayout;
-	VkDescriptorSetLayout particleDescriptorSetLayout;
-	VkDescriptorSetLayout screenDescriptorSetLayout;
-	VkPipelineLayout pipelineLayout;
-	VkPipelineLayout particlePipelineLayout;
-	VkPipelineLayout screenPipelineLayout;
-	VkPipelineCache pipelineCache;
 	struct {
-		VkPipeline standardPipeline;
-		VkPipeline particlePipeline;
-		VkPipeline screenPipeline;
+		VkDescriptorSetLayout standard;
+		VkDescriptorSetLayout particle;
+		VkDescriptorSetLayout screen;
+	} descriptorSetLayouts;
+	struct {
+		VkPipelineLayout standard;
+		VkPipelineLayout particle;
+		VkPipelineLayout screen;
+	} pipelineLayouts;
+	struct {
+		VkPipeline standard;
+		VkPipeline particle;
+		VkPipeline screen;
 	} pipelines;
-	VkCommandPool commandPool;
-	VkDescriptorPool descriptorPool;
-	VkDescriptorSet descriptorSet;
-	VkDescriptorSet particleDescriptorSet;
-	VkDescriptorSet screenDescriptorSet;
+	struct {
+		VkDescriptorSet standard;
+		VkDescriptorSet particle;
+		VkDescriptorSet screen;
+	} descriptorSets;
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
-	VkImage depthImage;
-	VkDeviceMemory depthImageMemory;
-	VkImageView depthImageView;
+	ImageAttachment depthImage;
 
-	VkRenderPass offscreenRenderPass;
 	VkSampler offscreenSampler;
-	VkImage offscreenColorImage;
-	VkDeviceMemory offscreenColorImageMemory;
-	VkImageView offscreenColorImageView;
-	VkImage offscreenDepthImage;
-	VkDeviceMemory offscreenDepthImageMemory;
-	VkImageView offscreenDepthImageView;
+	ImageAttachment offscreenColorImage;
+	ImageAttachment offscreenDepthImage;
 	VkSemaphore offscreenRenderedSemaphore;
 	VkFramebuffer offscreenFramebuffer;
 	VkDescriptorSet offscreenDescriptorSet;
@@ -145,7 +143,7 @@ class VulkanInterface
 	void createSwapchain();
 	void createImageViews();
 	void createRenderPass();
-	void createDescriptorSetLayout();
+	void createStandardDescriptorSetLayout();
 	void createParticleDescriptorSetLayout();
 	void createScreenDescriptorSetLayout();
 	void createPipelineCache();
@@ -155,7 +153,7 @@ class VulkanInterface
 	void createDepthResources();
 	void createUniformBuffer();
 	void createDescriptorPool();
-	void createDescriptorSet();
+	void createDescriptorSets();
 	void createCommandBuffers();
 	void createSemaphoresAndFences();
 
@@ -173,13 +171,9 @@ class VulkanInterface
 
 	void cleanupSwapchain(bool delSwapchain);
 
-	VkCommandBuffer beginSingleTimeCommands();
-	void endSingleTimeCommands(VkCommandBuffer commandBuffer);
-
-	Window * window;
 	Model * model;
 	Model * screenQuad;
-	ParticlePushConstantBufferObject pushConstant;
+	Terrain * terrain;
 	uint32_t numThread = 2;
 	uint32_t numPerThread = 3;
 	SpecificThreadPool threadPool;
@@ -209,6 +203,7 @@ public:
 	void waitForIdle();
 	void recreateSwapchain();
 
+	Window * window;
 	VkDevice logicalDevice;
 
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -216,13 +211,23 @@ public:
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-	void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+	void createImage(uint32_t width, uint32_t height, uint32_t layers, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
 
-	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t layers);
 
 	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
 	VkPipelineShaderStageCreateInfo loadShaderModule(const std::string &shaderFilename, VkShaderStageFlagBits stage);
+
+	VkPipelineCache pipelineCache;
+	VkRenderPass offscreenRenderPass;
+	VkDescriptorPool descriptorPool;
+	VkCommandPool commandPool;
+	ParticlePushConstantBufferObject pushConstant;
+
+	VkCommandBuffer beginSingleTimeCommands();
+
+	void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 };
 
 bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
@@ -237,6 +242,13 @@ VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat
 VkFormat findDepthFormat(VkPhysicalDevice device);
 bool hasStencilComponent(VkFormat format);
 
+VkVertexInputBindingDescription bindingDescription(uint32_t binding, uint32_t stride,
+                                                   VkVertexInputRate inputType);
+VkVertexInputAttributeDescription attributeDescription(uint32_t binding, uint32_t location,
+                                                       VkFormat format, uint32_t offset);
+VkVertexInputAttributeDescription attributeDescription(uint32_t binding, uint32_t location,
+                                                       VkFormat format, size_t offset);
+
 std::vector<VkVertexInputBindingDescription> modelBindingDescription();
 std::vector<VkVertexInputBindingDescription> particleBindingDescription();
 std::vector<VkVertexInputBindingDescription> screenBindingDescription();
@@ -245,7 +257,7 @@ std::vector<VkVertexInputAttributeDescription> screenAttributeDescription();
 std::vector<VkVertexInputAttributeDescription> particleAttributeDescription();
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
 
-VkImageView createImageView(VkDevice logicalDevice, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+VkImageView createImageView(VkDevice logicalDevice, VkImageViewType viewType, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t layers);
 
 Mesh* createScreenQuad(VulkanInterface* vki);
 
