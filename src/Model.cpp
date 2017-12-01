@@ -6,18 +6,27 @@
 #include "logger.h"
 #include "vulkanInterface.h"
 #include <assimp/Importer.hpp>
+#include <utility>
 #include <assimp/postprocess.h>
+
+Model::Model(VulkanInterface *inVulkanInterface, Mesh* inMesh) :
+		vki(inVulkanInterface)
+{
+	mesh = inMesh;
+	texture = nullptr;
+}
 
 Model::Model(VulkanInterface *inVulkanInterface, std::string filename) :
 	vki(inVulkanInterface)
 {
-	load(filename);
+	load(std::move(filename));
 }
 
 Model::~Model()
 {
 	delete mesh;
-	delete texture;
+	if(texture)
+		delete texture;
 }
 
 void Model::draw(VkCommandBuffer commandBuffer)

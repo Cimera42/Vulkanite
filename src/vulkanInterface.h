@@ -90,30 +90,47 @@ class VulkanInterface
 	VkRenderPass renderPass;
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkDescriptorSetLayout particleDescriptorSetLayout;
+	VkDescriptorSetLayout screenDescriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 	VkPipelineLayout particlePipelineLayout;
+	VkPipelineLayout screenPipelineLayout;
 	VkPipelineCache pipelineCache;
 	struct {
 		VkPipeline standardPipeline;
-		VkPipeline wireframePipeline;
 		VkPipeline particlePipeline;
+		VkPipeline screenPipeline;
 	} pipelines;
 	VkCommandPool commandPool;
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSet descriptorSet;
 	VkDescriptorSet particleDescriptorSet;
+	VkDescriptorSet screenDescriptorSet;
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
 	VkImage depthImage;
 	VkDeviceMemory depthImageMemory;
 	VkImageView depthImageView;
 
+	VkRenderPass offscreenRenderPass;
+	VkSampler offscreenSampler;
+	VkImage offscreenColorImage;
+	VkDeviceMemory offscreenColorImageMemory;
+	VkImageView offscreenColorImageView;
+	VkImage offscreenDepthImage;
+	VkDeviceMemory offscreenDepthImageMemory;
+	VkImageView offscreenDepthImageView;
+	VkSemaphore offscreenRenderedSemaphore;
+	VkFramebuffer offscreenFramebuffer;
+	VkDescriptorSet offscreenDescriptorSet;
+	VkPipeline offscreenPipeline;
+	PushConstantBufferObject offscreenPushConstant;
+
 	VkCommandBuffer primaryCommandBuffer;
 	VkCommandBuffer particleCommandBuffer;
+	VkCommandBuffer screenCommandBuffer;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
-	VkFence renderFence;
 
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
@@ -130,6 +147,7 @@ class VulkanInterface
 	void createRenderPass();
 	void createDescriptorSetLayout();
 	void createParticleDescriptorSetLayout();
+	void createScreenDescriptorSetLayout();
 	void createPipelineCache();
 	void createGraphicsPipeline();
 	void createFramebuffers();
@@ -141,9 +159,17 @@ class VulkanInterface
 	void createCommandBuffers();
 	void createSemaphoresAndFences();
 
+	void createOffscreenRenderPass();
+	void createOffscreenImages();
+	void createOffscreenSemaphore();
+	void createOffscreenFramebuffer();
+	void createScreenCommandBuffer();
+	void updateScreenCommandBuffer(VkFramebuffer framebuffer);
+	void createScreenDescriptorSet();
+
 	void threadedRender(int threadIndex, int objectIndex, VkCommandBufferInheritanceInfo inheritanceInfo);
 	void updateParticleCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
-	void updateCommandBuffers(VkFramebuffer framebuffer);
+	void updateCommandBuffers();
 
 	void cleanupSwapchain(bool delSwapchain);
 
@@ -152,6 +178,7 @@ class VulkanInterface
 
 	Window * window;
 	Model * model;
+	Model * screenQuad;
 	ParticlePushConstantBufferObject pushConstant;
 	uint32_t numThread = 2;
 	uint32_t numPerThread = 3;
@@ -183,7 +210,6 @@ public:
 	void recreateSwapchain();
 
 	VkDevice logicalDevice;
-	bool wireframe = false;
 
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 					  VkMemoryPropertyFlags propertyFlags, VkBuffer &buffer, VkDeviceMemory &bufferMemory);
@@ -211,12 +237,16 @@ VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat
 VkFormat findDepthFormat(VkPhysicalDevice device);
 bool hasStencilComponent(VkFormat format);
 
-std::array<VkVertexInputBindingDescription, 1> getBindingDescription();
-std::array<VkVertexInputBindingDescription, 2> getParticleBindingDescription();
-std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription();
-std::array<VkVertexInputAttributeDescription, 7> getParticleAttributeDescription();
+std::vector<VkVertexInputBindingDescription> modelBindingDescription();
+std::vector<VkVertexInputBindingDescription> particleBindingDescription();
+std::vector<VkVertexInputBindingDescription> screenBindingDescription();
+std::vector<VkVertexInputAttributeDescription> modelAttributeDescription();
+std::vector<VkVertexInputAttributeDescription> screenAttributeDescription();
+std::vector<VkVertexInputAttributeDescription> particleAttributeDescription();
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
 
 VkImageView createImageView(VkDevice logicalDevice, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+
+Mesh* createScreenQuad(VulkanInterface* vki);
 
 #endif //VULKANITE_VULKANINTERFACE_H

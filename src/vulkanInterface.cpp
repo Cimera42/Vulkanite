@@ -53,14 +53,28 @@ VulkanInterface::~VulkanInterface()
 {
 	cleanupSwapchain(true);
 
+	vkDestroySemaphore(logicalDevice, offscreenRenderedSemaphore, nullptr);
+	vkFreeMemory(logicalDevice, offscreenColorImageMemory, nullptr);
+	vkFreeMemory(logicalDevice, offscreenDepthImageMemory, nullptr);
+	vkDestroyImage(logicalDevice, offscreenColorImage, nullptr);
+	vkDestroyImage(logicalDevice, offscreenDepthImage, nullptr);
+	vkDestroyImageView(logicalDevice, offscreenColorImageView, nullptr);
+	vkDestroyImageView(logicalDevice, offscreenDepthImageView, nullptr);
+	vkDestroySampler(logicalDevice, offscreenSampler, nullptr);
+	vkDestroyRenderPass(logicalDevice, offscreenRenderPass, nullptr);
+	vkDestroyFramebuffer(logicalDevice, offscreenFramebuffer, nullptr);
+	vkDestroyPipeline(logicalDevice, offscreenPipeline, nullptr);
+
+	vkDestroyPipeline(logicalDevice, pipelines.screenPipeline, nullptr);
+	vkDestroyPipelineLayout(logicalDevice, screenPipelineLayout, nullptr);
+	vkDestroyDescriptorSetLayout(logicalDevice, screenDescriptorSetLayout, nullptr);
+
 	threadPool.destroy();
 	for(auto &i : threadData)
 	{
 		vkFreeCommandBuffers(logicalDevice, i.commandPool, numPerThread, i.commandBuffers.data());
 		vkDestroyCommandPool(logicalDevice, i.commandPool, nullptr);
 	}
-
-	vkDestroyFence(logicalDevice, renderFence, nullptr);
 
 	vkDestroyImageView(logicalDevice, depthImageView, nullptr);
 	Logger() << "Depth image view destroyed";
@@ -85,6 +99,7 @@ VulkanInterface::~VulkanInterface()
 
 	delete particles;
 	delete model;
+	delete screenQuad;
 	for(auto& shaderModule : shaderModules)
 	{
 		vkDestroyShaderModule(logicalDevice, shaderModule, nullptr);
@@ -125,8 +140,6 @@ void VulkanInterface::cleanupSwapchain(bool delSwapchain)
 
 	vkDestroyPipeline(logicalDevice, pipelines.standardPipeline, nullptr);
 	Logger() << "Standard pipeline destroyed";
-	vkDestroyPipeline(logicalDevice, pipelines.wireframePipeline, nullptr);
-	Logger() << "Wireframe pipeline destroyed";
 	vkDestroyPipeline(logicalDevice, pipelines.particlePipeline, nullptr);
 	Logger() << "Particle pipeline destroyed";
 	vkDestroyPipelineLayout(logicalDevice, pipelineLayout, nullptr);
@@ -160,9 +173,13 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createLogicalDevice();
 	createSwapchain();
 	createImageViews();
+	createOffscreenImages();
 	createRenderPass();
+	createOffscreenRenderPass();
+	createOffscreenFramebuffer();
 	createDescriptorSetLayout();
 	createParticleDescriptorSetLayout();
+	createScreenDescriptorSetLayout();
 	createPipelineCache();
 	createGraphicsPipeline();
 	createCommandPool();
@@ -170,11 +187,48 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createFramebuffers();
 	particles = new ParticleSystem(this, "models/Particles/particle1.fbx");
 	model = new Model(this, "models/Mushroom/mushroom.fbx");
+	Mesh * quadMesh = createScreenQuad(this);
+	screenQuad = new Model(this, quadMesh);
 	createUniformBuffer();
 	createDescriptorPool();
 	createDescriptorSet();
+	createScreenDescriptorSet();
 	createCommandBuffers();
+	createScreenCommandBuffer();
 	createSemaphoresAndFences();
+	createOffscreenSemaphore();
+}
+
+Mesh *createScreenQuad(VulkanInterface* vki)
+{
+	Mesh* mesh = new Mesh(vki);
+
+	mesh->load(
+			{
+				{-1,-1,0},
+				{1,-1,0},
+				{1,1,0},
+				{-1,1,0}
+			},
+			{
+				{0,0},
+				{1,0},
+				{1,1},
+				{0,1}
+			},
+			{
+				{0,0,1},
+				{0,0,1},
+				{0,0,1},
+				{0,0,1}
+			},
+			{
+				0,1,2,
+				0,3,2
+			}
+	);
+
+	return mesh;
 }
 
 void VulkanInterface::recreateSwapchain()
@@ -380,6 +434,198 @@ void VulkanInterface::createSwapchain()
 	vkGetSwapchainImagesKHR(logicalDevice, swapchain, &imageCount, swapchainImages.data());
 }
 
+void VulkanInterface::createOffscreenImages()
+{
+	createImage(swapchainExtent.width, swapchainExtent.height, VK_FORMAT_R8G8B8A8_UNORM,
+	            VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreenColorImage, offscreenColorImageMemory);
+	offscreenColorImageView = createImageView(logicalDevice, offscreenColorImage,
+	                                          VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	VkFormat depthFormat = findDepthFormat(physicalDevice);
+	createImage(swapchainExtent.width, swapchainExtent.height,
+	            depthFormat, VK_IMAGE_TILING_OPTIMAL,
+	            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreenDepthImage, offscreenDepthImageMemory);
+	offscreenDepthImageView = createImageView(logicalDevice, offscreenDepthImage,
+	                                          depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+	VkSamplerCreateInfo samplerInfo = {};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_LINEAR;
+	samplerInfo.minFilter = VK_FILTER_LINEAR;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+	samplerInfo.mipLodBias = 0.0f;
+	samplerInfo.maxAnisotropy = 1.0f;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = 1.0f;
+
+	VK_RESULT_CHECK(vkCreateSampler(logicalDevice, &samplerInfo, nullptr, &offscreenSampler))
+}
+
+void VulkanInterface::createOffscreenSemaphore()
+{
+	VkSemaphoreCreateInfo semaphoreInfo = {};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+	VK_RESULT_CHECK(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &offscreenRenderedSemaphore))
+}
+
+void VulkanInterface::createOffscreenRenderPass()
+{
+	std::array<VkAttachmentDescription, 2> attchmentDescriptions = {};
+	// Color attachment
+	attchmentDescriptions[0].format = VK_FORMAT_R8G8B8A8_UNORM;
+	attchmentDescriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
+	attchmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attchmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attchmentDescriptions[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attchmentDescriptions[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attchmentDescriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attchmentDescriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	// Depth attachment
+	VkFormat depthFormat = findDepthFormat(physicalDevice);
+	attchmentDescriptions[1].format = depthFormat;
+	attchmentDescriptions[1].samples = VK_SAMPLE_COUNT_1_BIT;
+	attchmentDescriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attchmentDescriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attchmentDescriptions[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attchmentDescriptions[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attchmentDescriptions[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attchmentDescriptions[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference colorReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+	VkAttachmentReference depthReference = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+	VkSubpassDescription subpassDescription = {};
+	subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpassDescription.colorAttachmentCount = 1;
+	subpassDescription.pColorAttachments = &colorReference;
+	subpassDescription.pDepthStencilAttachment = &depthReference;
+
+	// Use subpass dependencies for layout transitions
+	std::array<VkSubpassDependency, 2> dependencies;
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = static_cast<uint32_t>(attchmentDescriptions.size());
+	renderPassInfo.pAttachments = attchmentDescriptions.data();
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpassDescription;
+	renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+	renderPassInfo.pDependencies = dependencies.data();
+
+	VK_RESULT_CHECK(vkCreateRenderPass(logicalDevice, &renderPassInfo, nullptr, &offscreenRenderPass));
+}
+
+void VulkanInterface::createOffscreenFramebuffer()
+{
+	VkImageView attachments[2];
+	attachments[0] = offscreenColorImageView;
+	attachments[1] = offscreenDepthImageView;
+
+	VkFramebufferCreateInfo fbufCreateInfo = {};
+	fbufCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	fbufCreateInfo.renderPass = offscreenRenderPass;
+	fbufCreateInfo.attachmentCount = 2;
+	fbufCreateInfo.pAttachments = attachments;
+	fbufCreateInfo.width = swapchainExtent.width;
+	fbufCreateInfo.height = swapchainExtent.height;
+	fbufCreateInfo.layers = 1;
+
+	VK_RESULT_CHECK(vkCreateFramebuffer(logicalDevice, &fbufCreateInfo, nullptr, &offscreenFramebuffer));
+}
+
+void VulkanInterface::createScreenCommandBuffer()
+{
+	VkCommandBufferAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool = commandPool;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = 1;
+
+	VK_RESULT_CHECK(vkAllocateCommandBuffers(logicalDevice, &allocInfo, &screenCommandBuffer));
+}
+
+void VulkanInterface::updateScreenCommandBuffer(VkFramebuffer framebuffer)
+{
+	VkClearValue clearValues[2];
+	clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+	clearValues[1].depthStencil = { 1.0f, 0 };
+
+	VkRenderPassBeginInfo renderPassBeginInfo = {};
+	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassBeginInfo.renderPass = renderPass;
+	renderPassBeginInfo.framebuffer = framebuffer;
+	renderPassBeginInfo.renderArea.extent.width = swapchainExtent.width;
+	renderPassBeginInfo.renderArea.extent.height = swapchainExtent.height;
+	renderPassBeginInfo.clearValueCount = 2;
+	renderPassBeginInfo.pClearValues = clearValues;
+
+	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+	vkBeginCommandBuffer(screenCommandBuffer, &commandBufferBeginInfo);
+	vkCmdBeginRenderPass(screenCommandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	vkCmdBindPipeline(screenCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.screenPipeline);
+	vkCmdBindDescriptorSets(screenCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, screenPipelineLayout, 0, 1,
+	                        &screenDescriptorSet, 0, nullptr);
+
+	screenQuad->draw(screenCommandBuffer);
+
+	vkCmdEndRenderPass(screenCommandBuffer);
+	VK_RESULT_CHECK(vkEndCommandBuffer(screenCommandBuffer));
+}
+
+void VulkanInterface::createScreenDescriptorSet()
+{
+	std::vector<VkDescriptorSetLayout> layouts = {
+			screenDescriptorSetLayout
+	};
+	VkDescriptorSetAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
+	allocInfo.pSetLayouts = layouts.data();
+
+	VK_RESULT_CHECK(vkAllocateDescriptorSets(logicalDevice, &allocInfo, &screenDescriptorSet))
+
+	VkDescriptorImageInfo imageInfo = {};
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	imageInfo.imageView = offscreenColorImageView;
+	imageInfo.sampler = offscreenSampler;
+
+	std::array<VkWriteDescriptorSet, 1> descriptorWrites = {};
+	descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrites[0].dstSet = screenDescriptorSet;
+	descriptorWrites[0].dstBinding = 0;
+	descriptorWrites[0].dstArrayElement = 0;
+	descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	descriptorWrites[0].descriptorCount = 1;
+	descriptorWrites[0].pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(logicalDevice, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+}
+
 void VulkanInterface::createImageViews()
 {
 	swapchainImageViews.resize(swapchainImages.size());
@@ -497,6 +743,25 @@ void VulkanInterface::createParticleDescriptorSetLayout()
 	Logger() << "Particle descriptor set layout created";
 }
 
+void VulkanInterface::createScreenDescriptorSetLayout()
+{
+	VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
+	samplerLayoutBinding.binding = 0;
+	samplerLayoutBinding.descriptorCount = 1;
+	samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	samplerLayoutBinding.pImmutableSamplers = nullptr; // Optional
+
+	std::array<VkDescriptorSetLayoutBinding, 1> bindings = {samplerLayoutBinding};
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+	layoutInfo.pBindings = bindings.data();
+
+	VK_RESULT_CHECK(vkCreateDescriptorSetLayout(logicalDevice, &layoutInfo, nullptr, &screenDescriptorSetLayout))
+	Logger() << "Particle descriptor set layout created";
+}
+
 void VulkanInterface::createPipelineCache()
 {
 	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
@@ -506,8 +771,8 @@ void VulkanInterface::createPipelineCache()
 
 void VulkanInterface::createGraphicsPipeline()
 {
-	auto bindingDescription = getBindingDescription();
-	auto attributeDescription = getAttributeDescription();
+	auto bindingDescription = modelBindingDescription();
+	auto attributeDescription = modelAttributeDescription();
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -516,15 +781,25 @@ void VulkanInterface::createGraphicsPipeline()
 	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescription.size());
 	vertexInputInfo.pVertexAttributeDescriptions = attributeDescription.data(); // Optional
 
-	auto particleBindingDescription = getParticleBindingDescription();
-	auto particleAttributeDescription = getParticleAttributeDescription();
+	auto particleBinding = particleBindingDescription();
+	auto particleAttribute = particleAttributeDescription();
 
 	VkPipelineVertexInputStateCreateInfo particleVertexInputInfo = {};
 	particleVertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	particleVertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(particleBindingDescription.size());
-	particleVertexInputInfo.pVertexBindingDescriptions = particleBindingDescription.data(); // Optional
-	particleVertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(particleAttributeDescription.size());
-	particleVertexInputInfo.pVertexAttributeDescriptions = particleAttributeDescription.data(); // Optional
+	particleVertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(particleBinding.size());
+	particleVertexInputInfo.pVertexBindingDescriptions = particleBinding.data(); // Optional
+	particleVertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(particleAttribute.size());
+	particleVertexInputInfo.pVertexAttributeDescriptions = particleAttribute.data(); // Optional
+
+	auto screenBinding = screenBindingDescription();
+	auto screenAttribute = screenAttributeDescription();
+
+	VkPipelineVertexInputStateCreateInfo screenVertexInputInfo = {};
+	screenVertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	screenVertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(screenBinding.size());
+	screenVertexInputInfo.pVertexBindingDescriptions = screenBinding.data(); // Optional
+	screenVertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(screenAttribute.size());
+	screenVertexInputInfo.pVertexAttributeDescriptions = screenAttribute.data(); // Optional
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -645,6 +920,12 @@ void VulkanInterface::createGraphicsPipeline()
 	VK_RESULT_CHECK(vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &particlePipelineLayout))
 	Logger() << "Particle pipeline layout created";
 
+	pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
+	pipelineLayoutInfo.pPushConstantRanges = VK_NULL_HANDLE; // Optional
+	pipelineLayoutInfo.pSetLayouts = &screenDescriptorSetLayout; // Optional
+	VK_RESULT_CHECK(vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &screenPipelineLayout))
+	Logger() << "Screen pipeline layout created";
+
 	std::vector<VkPipelineShaderStageCreateInfo> shaderStages = {
 			loadShaderModule("shaders/standard.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
 			loadShaderModule("shaders/standard.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
@@ -663,7 +944,7 @@ void VulkanInterface::createGraphicsPipeline()
 	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDynamicState = nullptr; // Optional
 	pipelineInfo.layout = pipelineLayout;
-	pipelineInfo.renderPass = renderPass;
+	pipelineInfo.renderPass = offscreenRenderPass;
 	pipelineInfo.subpass = 0;
 	pipelineInfo.flags = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
@@ -672,25 +953,28 @@ void VulkanInterface::createGraphicsPipeline()
 	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.standardPipeline))
 	Logger() << "Standard pipeline created";
 
-	shaderStages = {
-			loadShaderModule("shaders/wireframe.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
-			loadShaderModule("shaders/wireframe.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
-	};
 	pipelineInfo.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
 	pipelineInfo.basePipelineHandle = pipelines.standardPipeline;
 	pipelineInfo.basePipelineIndex = -1;
-	rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
-	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.wireframePipeline))
-	Logger() << "Wireframe pipeline created";
+	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &offscreenPipeline))
 
 	shaderStages = {
 			loadShaderModule("shaders/particle.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
 			loadShaderModule("shaders/particle.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
 	};
-	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	pipelineInfo.pVertexInputState = &particleVertexInputInfo;
 	pipelineInfo.layout = particlePipelineLayout;
 	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.particlePipeline))
+	Logger() << "Particle pipeline created";
+
+	shaderStages = {
+			loadShaderModule("shaders/screen.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			loadShaderModule("shaders/screen.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
+	};
+	pipelineInfo.pVertexInputState = &screenVertexInputInfo;
+	pipelineInfo.layout = screenPipelineLayout;
+	pipelineInfo.renderPass = renderPass;
+	VK_RESULT_CHECK(vkCreateGraphicsPipelines(logicalDevice, pipelineCache, 1, &pipelineInfo, nullptr, &pipelines.screenPipeline))
 	Logger() << "Particle pipeline created";
 }
 
@@ -766,15 +1050,15 @@ void VulkanInterface::createDescriptorPool()
 {
 	std::array<VkDescriptorPoolSize, 2> poolSizes = {};
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSizes[0].descriptorCount = 1;
+	poolSizes[0].descriptorCount = 2;
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSizes[1].descriptorCount = 2;
+	poolSizes[1].descriptorCount = 4;
 
 	VkDescriptorPoolCreateInfo poolInfo = {};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	poolInfo.poolSizeCount = poolSizes.size();
 	poolInfo.pPoolSizes = poolSizes.data();
-	poolInfo.maxSets = 2;
+	poolInfo.maxSets = 5;
 
 	VK_RESULT_CHECK(vkCreateDescriptorPool(logicalDevice, &poolInfo, nullptr, &descriptorPool))
 	Logger() << "Descriptor pool created";
@@ -783,7 +1067,7 @@ void VulkanInterface::createDescriptorPool()
 void VulkanInterface::createDescriptorSet()
 {
 	std::vector<VkDescriptorSetLayout> layouts = {
-			descriptorSetLayout, particleDescriptorSetLayout
+			descriptorSetLayout, particleDescriptorSetLayout, screenDescriptorSetLayout
 	};
 	VkDescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -917,10 +1201,7 @@ void VulkanInterface::threadedRender(int threadIndex, int objectIndex, VkCommand
 	scissor.offset = {0,0};
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-	if(!wireframe)
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.standardPipeline);
-	else
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.wireframePipeline);
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.standardPipeline);
 
 	thread->pushConstantBlock[objectIndex].view = pushConstant.view;
 	thread->pushConstantBlock[objectIndex].proj = pushConstant.proj;
@@ -952,10 +1233,6 @@ void VulkanInterface::createSemaphoresAndFences()
 
 	VK_RESULT_CHECK(vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphore))
 	Logger() << "Render semaphores created";
-
-	VkFenceCreateInfo fenceCreateInfo = {};
-	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	VK_RESULT_CHECK(vkCreateFence(logicalDevice, &fenceCreateInfo, nullptr, &renderFence))
 }
 
 void VulkanInterface::update(Camera *camera)
@@ -1018,7 +1295,7 @@ void VulkanInterface::updateParticleCommandBuffer(VkCommandBufferInheritanceInfo
 }
 
 
-void VulkanInterface::updateCommandBuffers(VkFramebuffer framebuffer)
+void VulkanInterface::updateCommandBuffers()
 {
 	VkCommandBufferBeginInfo beginInfo = {};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1029,8 +1306,8 @@ void VulkanInterface::updateCommandBuffers(VkFramebuffer framebuffer)
 
 	VkRenderPassBeginInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassInfo.renderPass = renderPass;
-	renderPassInfo.framebuffer = framebuffer;
+	renderPassInfo.renderPass = offscreenRenderPass;
+	renderPassInfo.framebuffer = offscreenFramebuffer;
 	renderPassInfo.renderArea.offset = {0, 0};
 	renderPassInfo.renderArea.extent = swapchainExtent;
 	renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
@@ -1042,8 +1319,8 @@ void VulkanInterface::updateCommandBuffers(VkFramebuffer framebuffer)
 
 	VkCommandBufferInheritanceInfo inheritanceInfo = {};
 	inheritanceInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-	inheritanceInfo.renderPass = renderPass;
-	inheritanceInfo.framebuffer = framebuffer;
+	inheritanceInfo.renderPass = offscreenRenderPass;
+	inheritanceInfo.framebuffer = offscreenFramebuffer;
 
 	std::vector<VkCommandBuffer> commandBuffers;
 
@@ -1091,40 +1368,33 @@ void VulkanInterface::draw()
 	}
 	while(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR);
 
-	updateCommandBuffers(swapchainFramebuffers[imageIndex]);
+	updateCommandBuffers();
+	updateScreenCommandBuffer(swapchainFramebuffers[imageIndex]);
 
 	VkSubmitInfo submitInfo = {};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &primaryCommandBuffer;
-
-	VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
 	VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = waitSemaphores;
+	submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
 	submitInfo.pWaitDstStageMask = waitStages;
-
-	VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
 	submitInfo.signalSemaphoreCount = 1;
-	submitInfo.pSignalSemaphores = signalSemaphores;
+	submitInfo.pSignalSemaphores = &offscreenRenderedSemaphore;
 
-	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, renderFence))
+	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, nullptr));
 
-	VkResult fenceRes;
-	do
-	{
-		fenceRes = vkWaitForFences(logicalDevice, 1, &renderFence, VK_TRUE, 100000000);
-	}
-	while(fenceRes == VK_TIMEOUT);
-	VK_RESULT_CHECK(fenceRes)
-	vkResetFences(logicalDevice, 1, &renderFence);
+	submitInfo.pWaitSemaphores = &offscreenRenderedSemaphore;
+	submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
+	submitInfo.pCommandBuffers = &screenCommandBuffer;
+	VK_RESULT_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, nullptr));
 
 	//Submit frame to swapchain
 	VkPresentInfoKHR presentInfo = {};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
 	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pWaitSemaphores = signalSemaphores;
+	presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
 
 	VkSwapchainKHR swapChains[] = {swapchain};
 	presentInfo.swapchainCount = 1;
@@ -1479,85 +1749,90 @@ VkPipelineShaderStageCreateInfo VulkanInterface::loadShaderModule(const std::str
 	return shaderStageInfo;
 }
 
-std::array<VkVertexInputBindingDescription, 1> getBindingDescription()
+VkVertexInputBindingDescription bindingDescription(uint32_t binding, uint32_t stride,
+                                                   VkVertexInputRate inputType)
 {
-	VkVertexInputBindingDescription vertexBindingDescription = {};
-	vertexBindingDescription.binding = 0;
-	vertexBindingDescription.stride = sizeof(Vertex);
-	vertexBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-	return {vertexBindingDescription};
+	VkVertexInputBindingDescription bindingDescription = {};
+	bindingDescription.binding = binding;
+	bindingDescription.stride = stride;
+	bindingDescription.inputRate = inputType;
+	return bindingDescription;
 }
 
-std::array<VkVertexInputBindingDescription, 2> getParticleBindingDescription()
+VkVertexInputAttributeDescription attributeDescription(uint32_t binding, uint32_t location,
+                                                       VkFormat format, uint32_t offset)
 {
-	VkVertexInputBindingDescription vertexBindingDescription = {};
-	vertexBindingDescription.binding = 0;
-	vertexBindingDescription.stride = sizeof(Vertex);
-	vertexBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-	VkVertexInputBindingDescription instanceBindingDescription = {};
-	instanceBindingDescription.binding = 1;
-	instanceBindingDescription.stride = sizeof(glm::mat4);
-	instanceBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-	return {vertexBindingDescription, instanceBindingDescription};
+	VkVertexInputAttributeDescription attributeDescription = {};
+	attributeDescription.binding = binding;
+	attributeDescription.location = location;
+	attributeDescription.format = format;
+	attributeDescription.offset = offset;
+	return attributeDescription;
 }
 
-std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription()
+VkVertexInputAttributeDescription attributeDescription(uint32_t binding, uint32_t location,
+                                                       VkFormat format, size_t offset)
 {
-	std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions = {};
+	return attributeDescription(binding, location, format, static_cast<uint32_t>(offset));
+}
 
-	//Position
-	attributeDescriptions[0].binding = 0;
-	attributeDescriptions[0].location = 0;
-	attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[0].offset = static_cast<uint32_t>(offsetof(Vertex, position));
+std::vector<VkVertexInputBindingDescription> modelBindingDescription()
+{
+	return {bindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX)};
+}
 
-	//UVs
-	attributeDescriptions[1].binding = 0;
-	attributeDescriptions[1].location = 1;
-	attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
-	attributeDescriptions[1].offset = static_cast<uint32_t>(offsetof(Vertex, uv));
+std::vector<VkVertexInputBindingDescription> particleBindingDescription()
+{
+	return {
+		bindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX),
+		bindingDescription(1, sizeof(ParticleInstanceData), VK_VERTEX_INPUT_RATE_INSTANCE)
+	};
+}
 
-	//Colour
-	attributeDescriptions[2].binding = 0;
-	attributeDescriptions[2].location = 2;
-	attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[2].offset = static_cast<uint32_t>(offsetof(Vertex, normal));
+std::vector<VkVertexInputBindingDescription> screenBindingDescription()
+{
+	return {bindingDescription(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX)};
+}
+
+std::vector<VkVertexInputAttributeDescription> modelAttributeDescription()
+{
+	std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
+	uint32_t index = 0;
+
+	attributeDescriptions[index] = attributeDescription(0, index, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position));
+	index++;
+	attributeDescriptions[index] = attributeDescription(0, index, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv));
+	index++;
+	attributeDescriptions[index] = attributeDescription(0, index, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal));
 
 	return attributeDescriptions;
 }
 
-std::array<VkVertexInputAttributeDescription, 7> getParticleAttributeDescription()
+std::vector<VkVertexInputAttributeDescription> screenAttributeDescription()
 {
-	std::array<VkVertexInputAttributeDescription, 7> attributeDescriptions = {};
+	std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
+	uint32_t index = 0;
 
-	//Position
-	attributeDescriptions[0].binding = 0;
-	attributeDescriptions[0].location = 0;
-	attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[0].offset = static_cast<uint32_t>(offsetof(Vertex, position));
+	attributeDescriptions[index] = attributeDescription(0, index, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position));
+	index++;
+	attributeDescriptions[index] = attributeDescription(0, index, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv));
 
-	//UVs
-	attributeDescriptions[1].binding = 0;
-	attributeDescriptions[1].location = 1;
-	attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
-	attributeDescriptions[1].offset = static_cast<uint32_t>(offsetof(Vertex, uv));
+	return attributeDescriptions;
+}
 
-	//Colour
-	attributeDescriptions[2].binding = 0;
-	attributeDescriptions[2].location = 2;
-	attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[2].offset = static_cast<uint32_t>(offsetof(Vertex, normal));
+std::vector<VkVertexInputAttributeDescription> particleAttributeDescription()
+{
+	std::vector<VkVertexInputAttributeDescription> attributeDescriptions = modelAttributeDescription();
+	auto index = static_cast<uint32_t>(attributeDescriptions.size());
+
+	uint32_t matSize = 4;
+	attributeDescriptions.resize(index + matSize);
 
 	//Instance mat4
-	for(uint32_t i = 0; i < 4; i++)
+	for(uint32_t i = 0; i < matSize; i++)
 	{
-		attributeDescriptions[3+i].binding = 1;
-		attributeDescriptions[3+i].location = 3+i;
-		attributeDescriptions[3+i].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-		attributeDescriptions[3+i].offset = sizeof(glm::vec4)*i;
+		attributeDescriptions[index+i] = attributeDescription(1, index+i, VK_FORMAT_R32G32B32A32_SFLOAT,
+		                                                      offsetof(ParticleInstanceData, transform) + sizeof(glm::vec4)*i);
 	}
 
 	return attributeDescriptions;

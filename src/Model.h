@@ -28,7 +28,8 @@ class Model
 	VulkanInterface * vki;
 
 public:
-	explicit Model(VulkanInterface *inVulkanInterface, std::string filename);
+	Model(VulkanInterface *inVulkanInterface, std::string filename);
+	Model(VulkanInterface *inVulkanInterface, Mesh* inMesh);
 	~Model();
 	void draw(VkCommandBuffer commandBuffer);
 	void draw(VkCommandBuffer commandBuffer, uint32_t instanceCount);
