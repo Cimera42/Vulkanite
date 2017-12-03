@@ -11,11 +11,8 @@
 #include "vulkanInterface.h"
 #include "logger.h"
 #include "Camera.h"
-#include "Model.h"
 #include "Terrain.h"
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include "Skybox.h"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
@@ -95,6 +92,7 @@ VulkanInterface::~VulkanInterface()
 	delete model;
 	delete screenQuad;
 	delete terrain;
+	delete skybox;
 	for(auto& shaderModule : shaderModules)
 	{
 		vkDestroyShaderModule(logicalDevice, shaderModule, nullptr);
@@ -187,6 +185,7 @@ void VulkanInterface::initVulkan(Window * inWindow)
 	createUniformBuffer();
 	createDescriptorPool();
 	terrain = new Terrain(this, "images/island.png");
+	skybox = new Skybox(this);
 	createDescriptorSets();
 	createScreenDescriptorSet();
 	createCommandBuffers();
@@ -197,7 +196,7 @@ void VulkanInterface::initVulkan(Window * inWindow)
 
 Mesh *createScreenQuad(VulkanInterface* vki)
 {
-	Mesh* mesh = new Mesh(vki);
+	auto mesh = new Mesh(vki);
 
 	mesh->load(
 			{
@@ -434,7 +433,7 @@ void VulkanInterface::createOffscreenImages()
 {
 	createImage(swapchainExtent.width, swapchainExtent.height, 1, VK_FORMAT_R8G8B8A8_UNORM,
 	            VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreenColorImage.image, offscreenColorImage.imageMemory);
+	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreenColorImage.image, offscreenColorImage.imageMemory, VK_NULL_HANDLE);
 	offscreenColorImage.imageView = createImageView(logicalDevice, VK_IMAGE_VIEW_TYPE_2D, offscreenColorImage.image,
 	                                          VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1);
 
@@ -442,7 +441,7 @@ void VulkanInterface::createOffscreenImages()
 	createImage(swapchainExtent.width, swapchainExtent.height, 1,
 	            depthFormat, VK_IMAGE_TILING_OPTIMAL,
 	            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreenDepthImage.image, offscreenDepthImage.imageMemory);
+	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreenDepthImage.image, offscreenDepthImage.imageMemory, VK_NULL_HANDLE);
 	offscreenDepthImage.imageView = createImageView(logicalDevice, VK_IMAGE_VIEW_TYPE_2D, offscreenDepthImage.image,
 	                                          depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 
@@ -503,7 +502,7 @@ void VulkanInterface::createOffscreenRenderPass()
 	subpassDescription.pDepthStencilAttachment = &depthReference;
 
 	// Use subpass dependencies for layout transitions
-	std::array<VkSubpassDependency, 2> dependencies;
+	std::array<VkSubpassDependency, 2> dependencies{};
 	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[0].dstSubpass = 0;
 	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
@@ -1027,7 +1026,7 @@ void VulkanInterface::createDepthResources()
 	createImage(swapchainExtent.width, swapchainExtent.height, 1,
 	            depthFormat, VK_IMAGE_TILING_OPTIMAL,
 	            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage.image, depthImage.imageMemory);
+	            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage.image, depthImage.imageMemory, VK_NULL_HANDLE);
 	depthImage.imageView = createImageView(logicalDevice, VK_IMAGE_VIEW_TYPE_2D, depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 	transitionImageLayout(depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
 	                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
@@ -1045,15 +1044,15 @@ void VulkanInterface::createDescriptorPool()
 {
 	std::array<VkDescriptorPoolSize, 2> poolSizes = {};
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSizes[0].descriptorCount = 2;
+	poolSizes[0].descriptorCount = 10;
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSizes[1].descriptorCount = 5;
+	poolSizes[1].descriptorCount = 10;
 
 	VkDescriptorPoolCreateInfo poolInfo = {};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	poolInfo.poolSizeCount = poolSizes.size();
 	poolInfo.pPoolSizes = poolSizes.data();
-	poolInfo.maxSets = 5;
+	poolInfo.maxSets = 20;
 
 	VK_RESULT_CHECK(vkCreateDescriptorPool(logicalDevice, &poolInfo, nullptr, &descriptorPool))
 	Logger() << "Descriptor pool created";
@@ -1208,7 +1207,7 @@ void VulkanInterface::threadedRender(int threadIndex, int objectIndex, VkCommand
 			commandBuffer,
 			pipelineLayouts.standard,
 			VK_SHADER_STAGE_VERTEX_BIT,
-			0, sizeof(PushConstantBufferObject),
+			0, sizeof(thread->pushConstantBlock[objectIndex]),
 			&thread->pushConstantBlock[objectIndex]
 	);
 
@@ -1270,7 +1269,7 @@ void VulkanInterface::updateParticleCommandBuffer(VkCommandBufferInheritanceInfo
 			particleCommandBuffer,
 			pipelineLayouts.particle,
 			VK_SHADER_STAGE_VERTEX_BIT,
-			0, sizeof(ParticlePushConstantBufferObject),
+			0, sizeof(pushConstant),
 			&pushConstant
 	);
 
@@ -1307,6 +1306,8 @@ void VulkanInterface::updateCommandBuffers()
 	inheritanceInfo.framebuffer = offscreenFramebuffer;
 
 	std::vector<VkCommandBuffer> commandBuffers;
+	//Skybox must go first to render behind everything
+	skybox->draw(&commandBuffers, inheritanceInfo);
 
 //	updateParticleCommandBuffer(inheritanceInfo);
 //	commandBuffers.emplace_back(particleCommandBuffer);
@@ -1851,7 +1852,7 @@ void VulkanInterface::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; //No need to share
 
 	VK_RESULT_CHECK(vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &buffer))
-	Logger() << "Buffer created";
+	//Logger() << "Buffer created";
 
 	VkMemoryRequirements memoryRequirements = {};
 	vkGetBufferMemoryRequirements(logicalDevice, buffer, &memoryRequirements);
@@ -1862,7 +1863,7 @@ void VulkanInterface::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 	allocInfo.memoryTypeIndex = findMemoryType(physicalDevice, memoryRequirements.memoryTypeBits, propertyFlags);
 
 	VK_RESULT_CHECK(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &bufferMemory))
-	Logger() << "Buffer memory allocated";
+	//Logger() << "Buffer memory allocated";
 	vkBindBufferMemory(logicalDevice, buffer, bufferMemory, 0);
 }
 
@@ -2023,7 +2024,7 @@ void VulkanInterface::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t
 	endSingleTimeCommands(commandBuffer);
 }
 
-void VulkanInterface::createImage(uint32_t width, uint32_t height, uint32_t layers, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
+void VulkanInterface::createImage(uint32_t width, uint32_t height, uint32_t layers, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory, VkImageCreateFlags flags)
 {
 	VkImageCreateInfo imageInfo = {};
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -2039,9 +2040,10 @@ void VulkanInterface::createImage(uint32_t width, uint32_t height, uint32_t laye
 	imageInfo.usage = usage;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.flags = flags;
 
 	VK_RESULT_CHECK(vkCreateImage(logicalDevice, &imageInfo, nullptr, &image))
-	Logger() << "Image created";
+	//Logger() << "Image created";
 
 	VkMemoryRequirements memRequirements = {};
 	vkGetImageMemoryRequirements(logicalDevice, image, &memRequirements);
@@ -2052,7 +2054,7 @@ void VulkanInterface::createImage(uint32_t width, uint32_t height, uint32_t laye
 	allocInfo.memoryTypeIndex = findMemoryType(physicalDevice, memRequirements.memoryTypeBits, properties);
 
 	VK_RESULT_CHECK(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &imageMemory))
-	Logger() << "Image memory allocated";
+	//Logger() << "Image memory allocated";
 
 	vkBindImageMemory(logicalDevice, image, imageMemory, 0);
 }
@@ -2072,7 +2074,7 @@ VkImageView createImageView(VkDevice logicalDevice, VkImageViewType viewType, Vk
 
 	VkImageView imageView;
 	VK_RESULT_CHECK(vkCreateImageView(logicalDevice, &viewInfo, nullptr, &imageView))
-	Logger() << "Image view created";
+	//Logger() << "Image view created";
 
 	return imageView;
 }

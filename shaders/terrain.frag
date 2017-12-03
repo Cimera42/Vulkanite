@@ -10,9 +10,26 @@ layout(binding = 0) uniform sampler2DArray texSampler;
 
 void main()
 {
-    //outColour = vec4(vec3(fragPos.y/10),1);//vec4((fragNormal+vec3(1))/2, 1);
-    vec3 tex0 = texture(texSampler, vec3(fragPos.xz,0)).rgb;
-    vec3 tex1 = texture(texSampler, vec3(fragPos.xz,1)).rgb;
-    vec3 col = mix(tex0, tex1, fragNormal.y);
-    outColour = vec4(col, 1);
+    //https://gamedevelopment.tutsplus.com/articles/use-tri-planar-texture-mapping-for-better-terrain--gamedev-13821
+    vec3 blend = normalize(abs(fragNormal));
+     //Make sure all parts add to make 1
+     //to prevent bright/dark spots
+    blend /= blend.x + blend.y + blend.z;
+
+    vec3 tex0X = texture(texSampler, vec3(fragPos.yz/5,0)).rgb;
+    vec3 tex0Y = texture(texSampler, vec3(fragPos.xz/5,0)).rgb;
+    vec3 tex0Z = texture(texSampler, vec3(fragPos.xy/5,0)).rgb;
+    vec3 tex0 = tex0X*blend.x + tex0Y*blend.y + tex0Z*blend.z;
+
+    vec3 tex1X = texture(texSampler, vec3(fragPos.yz/5,1)).rgb;
+    vec3 tex1Y = texture(texSampler, vec3(fragPos.xz/5,1)).rgb;
+    vec3 tex1Z = texture(texSampler, vec3(fragPos.xy/5,1)).rgb;
+    vec3 tex1 = tex1X*blend.x + tex1Y*blend.y + tex1Z*blend.z;
+
+    vec3 col = mix(tex0, tex1, blend.y);
+
+    float intensity = max(0,dot(normalize(vec3(1,1,0)), fragNormal));
+    intensity += 0.2; //ambient
+    intensity = clamp(intensity, 0, 1);
+    outColour = vec4(col*intensity, 1);
 }

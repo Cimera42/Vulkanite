@@ -5,6 +5,7 @@
 #include "Terrain.h"
 #include "vulkanInterface.h"
 #include "logger.h"
+#include <stb_image.h>
 
 Terrain::Terrain(VulkanInterface *inVulkan, std::string filename):
 		vki(inVulkan)
@@ -54,7 +55,7 @@ void Terrain::loadData(std::string filename)
 	float desiredHeight = 10;
 	float desiredDepth = 50;
 
-	vertices.reserve(vertWidth*vertHeight);
+	vertices.reserve(static_cast<uint32_t>(vertWidth * vertHeight));
 	for(int i = 0; i < vertHeight; i++)
 	{
 		for(int j = 0; j < vertWidth; j++)
@@ -68,7 +69,7 @@ void Terrain::loadData(std::string filename)
 
 	stbi_image_free(heightData);
 
-	indices.reserve(tileWidth*tileHeight * 6);
+	indices.reserve(static_cast<uint32_t>(tileWidth*tileHeight * 6));
 	for(int i = 0; i < tileHeight; i++)
 	{
 		for(int j = 0; j < tileWidth; j++)
@@ -112,7 +113,7 @@ void Terrain::loadData(std::string filename)
 
 void Terrain::createTexture()
 {
-	texture = new Texture(vki, {"images/rock.jpg", "images/sand.jpg"});
+	texture = new Texture(vki, {"images/rock.jpg", "images/sand.jpg"}, false);
 }
 
 void Terrain::createDescriptor()
@@ -377,13 +378,13 @@ void Terrain::updatePushConstantCommandBuffer(VkCommandBufferInheritanceInfo inh
 
 	vkBeginCommandBuffer(pushConstantCommandBuffer, &commandBufferBeginInfo);
 
-	PushConstantBufferObject pushConstant;
+	PushConstantBufferObject pushConstant = {};
 	pushConstant.view = vki->pushConstant.view;
 	pushConstant.proj = vki->pushConstant.proj;
 	pushConstant.model = glm::mat4(1.0f);
 
 	vkCmdPushConstants(pushConstantCommandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-	                   sizeof(PushConstantBufferObject), &pushConstant);
+	                   sizeof(pushConstant), &pushConstant);
 
 	VK_RESULT_CHECK(vkEndCommandBuffer(pushConstantCommandBuffer));
 }

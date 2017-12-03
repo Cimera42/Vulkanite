@@ -5,13 +5,16 @@
 #include "Texture.h"
 #include "logger.h"
 #include "vulkanInterface.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
-Texture::Texture(VulkanInterface *inVulkanInterface, std::vector<std::string> inFilenames):
+Texture::Texture(VulkanInterface *inVulkanInterface, std::vector<std::string> inFilenames, bool cube):
 	vki(inVulkanInterface),
-	filenames(inFilenames)
+	filenames(std::move(inFilenames)),
+	isCubemap(cube)
 {
 	loadImage();
-	createTextureImageView(filenames.size());
+	createTextureImageView(static_cast<uint32_t>(filenames.size()));
 	createTextureSampler();
 }
 
@@ -115,15 +118,32 @@ void Texture::loadImage()
 
 void Texture::createImage(uint32_t width, uint32_t height, uint32_t layers)
 {
+	VkImageCreateFlags flags = VK_NULL_HANDLE;
+	if(isCubemap)
+	{
+		flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+	}
 	vki->createImage(width, height, layers,
 	                 VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
 	                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-	                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.imageMemory);
+	                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.imageMemory, flags);
 }
 
 void Texture::createTextureImageView(uint32_t layers)
 {
-	VkImageViewType viewType = layers == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	VkImageViewType viewType;
+	if(layers == 1)
+	{
+		viewType = VK_IMAGE_VIEW_TYPE_2D;
+	}
+	else if(isCubemap)
+	{
+		viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+	}
+	else
+	{
+		viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	}
 	texture.imageView = createImageView(vki->logicalDevice, viewType, texture.image,
 	                                    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT,
 	                                    layers);

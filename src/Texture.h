@@ -6,7 +6,6 @@
 #define VULKANITE_TEXTURE_H
 
 #include <vulkan/vulkan.h>
-#include <stb_image.h>
 #include <string>
 #include <vector>
 #include "ImageAttachment.h"
@@ -17,6 +16,7 @@ class Texture
 {
 	VulkanInterface* vki;
 
+	bool isCubemap = false;
 	std::vector<std::string> filenames;
 
 	void loadImage();
@@ -26,7 +26,7 @@ class Texture
 	void createTextureSampler();
 
 public:
-	explicit Texture(VulkanInterface* inVulkanInterface, std::vector<std::string> inFilenames);
+	Texture(VulkanInterface* inVulkanInterface, std::vector<std::string> inFilenames, bool cube);
 	~Texture();
 
 	VkSampler textureSampler;

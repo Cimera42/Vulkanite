@@ -35,6 +35,7 @@ class Transform;
 class Camera;
 class ParticleSystem;
 class Terrain;
+class Skybox;
 
 struct UniformBufferObject {
 	glm::mat4 model;
@@ -174,6 +175,7 @@ class VulkanInterface
 	Model * model;
 	Model * screenQuad;
 	Terrain * terrain;
+	Skybox * skybox;
 	uint32_t numThread = 2;
 	uint32_t numPerThread = 3;
 	SpecificThreadPool threadPool;
@@ -211,7 +213,7 @@ public:
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-	void createImage(uint32_t width, uint32_t height, uint32_t layers, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+	void createImage(uint32_t width, uint32_t height, uint32_t layers, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory, VkImageCreateFlags flags);
 
 	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t layers);
 
