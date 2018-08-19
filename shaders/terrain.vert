@@ -22,5 +22,5 @@ void main()
 {
     gl_Position = pcbo.proj * pcbo.view * pcbo.model * vec4(inPosition, 1.0);
     fragNormal = inNormal;
-    fragPos = inPosition;
+    fragPos = vec3(pcbo.model * vec4(inPosition, 1.0));
 }

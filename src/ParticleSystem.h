@@ -37,11 +37,24 @@ class ParticleSystem
 	std::mutex matricesMutex;
 	GenericThreadPool threadPool;
 
+	VkDescriptorSetLayout descriptorSetLayout;
+	VkDescriptorSet descriptorSet;
+	VkPipelineLayout pipelineLayout;
+	VkPipeline pipeline;
+
+	VkCommandBuffer commandBuffer;
+
 	void initParticles();
 	void particleUpdate(Particle *particle);
 	void loadModel(std::string filename);
 	void prepareInstanceBuffer();
 	void copyMatrices();
+
+	void createDescriptor();
+	std::vector<VkVertexInputBindingDescription> getBindingDescription();
+	std::vector<VkVertexInputAttributeDescription> getAttributeDescription();
+	void createPipeline();
+	void allocateCommandBuffers();
 
 public:
 	explicit ParticleSystem(VulkanInterface *inVulkanInterface, std::string particleModelFilename);
@@ -50,7 +63,8 @@ public:
 	Model* particleModel;
 
 	void update();
-	void draw(VkCommandBuffer commandBuffer);
+	void draw(std::vector<VkCommandBuffer> * commandBuffers, VkCommandBufferInheritanceInfo inheritanceInfo);
+
 };
 
 

@@ -5,7 +5,9 @@ layout(location = 0) in vec2 fragUV;
 
 layout(location = 0) out vec4 outColour;
 
-layout(binding = 0) uniform sampler2D texSampler;
+layout(binding = 0) uniform sampler2D positionSampler;
+layout(binding = 1) uniform sampler2D colourSampler;
+layout(binding = 2) uniform sampler2D normalSampler;
 
 float sq(float a) { return a*a; }
 float zSphere(vec2 point)
@@ -23,5 +25,11 @@ void main()
 //        outColour = texture(texSampler, fragUV - sphereDir.xy*(sphereDir.z*2));
 //    }
 //    else
-        outColour = texture(texSampler, fragUV);
+        vec4 normal = texture(normalSampler, fragUV);
+        float intensity = 1;
+        if(normal.a != 0)
+        {
+            intensity = clamp(dot(normalize(vec3(-1,1,-1)), vec3(normal))+0.2, 0,1);
+        }
+        outColour = texture(colourSampler, fragUV)*vec4(vec3(intensity),1);
 }

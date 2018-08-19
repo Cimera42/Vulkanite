@@ -47,7 +47,7 @@ struct PushConstantBufferObject {
 	glm::mat4 proj;
 };
 
-struct ParticlePushConstantBufferObject {
+struct ViewPushConstantBufferObject {
 	glm::mat4 view;
 	glm::mat4 proj;
 };
@@ -78,6 +78,23 @@ struct ThreadData
 	std::vector<glm::vec3> modelPositions;
 };
 
+struct PipelineData
+{
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly;
+	VkPipelineRasterizationStateCreateInfo rasterizer;
+	VkPipelineMultisampleStateCreateInfo multisampling;
+	VkPipelineDepthStencilStateCreateInfo depthStencil;
+	VkPipelineColorBlendStateCreateInfo colorBlending;
+	VkGraphicsPipelineCreateInfo pipelineInfo;
+
+	std::vector<VkVertexInputBindingDescription> vertexBinding;
+	std::vector<VkVertexInputAttributeDescription> vertexAttributes;
+	std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
+	std::vector<VkViewport> viewports;
+	std::vector<VkRect2D> scissors;
+	std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachments;
+};
+
 class VulkanInterface
 {
 	VkInstance vulkanInstance;
@@ -93,22 +110,18 @@ class VulkanInterface
 	VkRenderPass renderPass;
 	struct {
 		VkDescriptorSetLayout standard;
-		VkDescriptorSetLayout particle;
 		VkDescriptorSetLayout screen;
 	} descriptorSetLayouts;
 	struct {
 		VkPipelineLayout standard;
-		VkPipelineLayout particle;
 		VkPipelineLayout screen;
 	} pipelineLayouts;
 	struct {
 		VkPipeline standard;
-		VkPipeline particle;
 		VkPipeline screen;
 	} pipelines;
 	struct {
 		VkDescriptorSet standard;
-		VkDescriptorSet particle;
 		VkDescriptorSet screen;
 	} descriptorSets;
 	VkBuffer uniformBuffer;
@@ -116,17 +129,14 @@ class VulkanInterface
 	ImageAttachment depthImage;
 
 	VkSampler offscreenSampler;
-	ImageAttachment offscreenColorImage;
+	ImageAttachment offscreenPositionImage;
+	ImageAttachment offscreenColourImage;
+	ImageAttachment offscreenNormalImage;
 	ImageAttachment offscreenDepthImage;
 	VkSemaphore offscreenRenderedSemaphore;
 	VkFramebuffer offscreenFramebuffer;
-	VkDescriptorSet offscreenDescriptorSet;
-	VkPipeline offscreenPipeline;
-	PushConstantBufferObject offscreenPushConstant;
 
-	VkCommandBuffer primaryCommandBuffer;
-	VkCommandBuffer particleCommandBuffer;
-	VkCommandBuffer screenCommandBuffer;
+	VkCommandBuffer offscreenCommandBuffer;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
@@ -134,6 +144,7 @@ class VulkanInterface
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
 	std::vector<VkFramebuffer> swapchainFramebuffers;
+	std::vector<VkCommandBuffer> screenCommandBuffers;
 
 	std::vector<VkShaderModule> shaderModules;
 
@@ -145,9 +156,9 @@ class VulkanInterface
 	void createImageViews();
 	void createRenderPass();
 	void createStandardDescriptorSetLayout();
-	void createParticleDescriptorSetLayout();
 	void createScreenDescriptorSetLayout();
 	void createPipelineCache();
+	void createDefaultPipelineData();
 	void createGraphicsPipeline();
 	void createFramebuffers();
 	void createCommandPool();
@@ -163,11 +174,10 @@ class VulkanInterface
 	void createOffscreenSemaphore();
 	void createOffscreenFramebuffer();
 	void createScreenCommandBuffer();
-	void updateScreenCommandBuffer(VkFramebuffer framebuffer);
+	void fillScreenCommandBuffers();
 	void createScreenDescriptorSet();
 
 	void threadedRender(int threadIndex, int objectIndex, VkCommandBufferInheritanceInfo inheritanceInfo);
-	void updateParticleCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
 	void updateCommandBuffers();
 
 	void cleanupSwapchain(bool delSwapchain);
@@ -217,19 +227,23 @@ public:
 
 	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t layers);
 
-	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-
 	VkPipelineShaderStageCreateInfo loadShaderModule(const std::string &shaderFilename, VkShaderStageFlagBits stage);
 
 	VkPipelineCache pipelineCache;
 	VkRenderPass offscreenRenderPass;
 	VkDescriptorPool descriptorPool;
 	VkCommandPool commandPool;
-	ParticlePushConstantBufferObject pushConstant;
+	ViewPushConstantBufferObject pushConstant;
 
 	VkCommandBuffer beginSingleTimeCommands();
 
 	void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+
+	void createPipeline(PipelineData pipelineData, VkPipeline *pipeline);
+
+	void createPipelineLayouts();
+
+	PipelineData defaultPipelineData;
 };
 
 bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
@@ -248,15 +262,11 @@ VkVertexInputBindingDescription bindingDescription(uint32_t binding, uint32_t st
                                                    VkVertexInputRate inputType);
 VkVertexInputAttributeDescription attributeDescription(uint32_t binding, uint32_t location,
                                                        VkFormat format, uint32_t offset);
-VkVertexInputAttributeDescription attributeDescription(uint32_t binding, uint32_t location,
-                                                       VkFormat format, size_t offset);
 
 std::vector<VkVertexInputBindingDescription> modelBindingDescription();
-std::vector<VkVertexInputBindingDescription> particleBindingDescription();
 std::vector<VkVertexInputBindingDescription> screenBindingDescription();
 std::vector<VkVertexInputAttributeDescription> modelAttributeDescription();
 std::vector<VkVertexInputAttributeDescription> screenAttributeDescription();
-std::vector<VkVertexInputAttributeDescription> particleAttributeDescription();
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags);
 
 VkImageView createImageView(VkDevice logicalDevice, VkImageViewType viewType, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t layers);

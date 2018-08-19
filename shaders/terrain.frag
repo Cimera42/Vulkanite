@@ -4,7 +4,9 @@
 layout(location = 0) in vec3 fragNormal;
 layout(location = 1) in vec3 fragPos;
 
-layout(location = 0) out vec4 outColour;
+layout(location = 0) out vec4 outPosition;
+layout(location = 1) out vec4 outColour;
+layout(location = 2) out vec4 outNormal;
 
 layout(binding = 0) uniform sampler2DArray texSampler;
 
@@ -28,8 +30,8 @@ void main()
 
     vec3 col = mix(tex0, tex1, blend.y);
 
-    float intensity = max(0,dot(normalize(vec3(1,1,0)), fragNormal));
-    intensity += 0.2; //ambient
-    intensity = clamp(intensity, 0, 1);
-    outColour = vec4(col*intensity, 1);
+    outColour = vec4(col, 1);
+
+    outPosition = vec4(fragPos, 1);
+    outNormal = vec4(fragNormal, 1);
 }

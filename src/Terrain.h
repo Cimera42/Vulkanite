@@ -51,7 +51,7 @@ class Terrain
 	std::vector<VkVertexInputAttributeDescription> getAttributeDescription();
 	void createPipeline();
 	void allocateCommandBuffers();
-	void updateCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
+	void fillCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
 	void updatePushConstantCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
 
 public:

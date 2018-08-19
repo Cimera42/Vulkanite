@@ -37,8 +37,8 @@ class Skybox
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkDescriptorSet descriptorSet;
 	bool commandBufferFilled = false;
-	VkCommandBuffer commandBuffer = nullptr;
-	VkCommandBuffer pushConstantCommandBuffer = nullptr;
+	VkCommandBuffer commandBuffer;
+	VkCommandBuffer pushConstantCommandBuffer;
 
 	void loadData();
 	void createVertexBuffer();
@@ -50,7 +50,7 @@ class Skybox
 	std::vector<VkVertexInputAttributeDescription> getAttributeDescription();
 	void createPipeline();
 	void allocateCommandBuffers();
-	void updateCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
+	void fillCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
 	void updatePushConstantCommandBuffer(VkCommandBufferInheritanceInfo inheritanceInfo);
 
 public:

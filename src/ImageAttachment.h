@@ -10,6 +10,7 @@ struct ImageAttachment
 	VkImage image;
 	VkDeviceMemory imageMemory;
 	VkImageView imageView;
+	VkFormat format;
 
 	void destroy(VkDevice logicalDevice) {
 		vkFreeMemory(logicalDevice, imageMemory, nullptr);
